@@ -13338,11 +13338,7 @@ static BOOL DYYYAwemeModelMatchesConfiguredContentFilters(AWEAwemeModel *aweme,
     return %orig;
 }
 
-//隐藏章节进度：返回空数组，章节视图不创建（会上移，但不影响进度条）
 - (NSArray *)chapterList {
-    if (DYYYGetBool(@"DYYYHideChapterProgress")) {
-        return @[];
-    }
     return %orig;
 }
 
@@ -16225,10 +16221,6 @@ static void DYYYHideChapterProgressBar(UIView *view) {
         DYYYHideVideoAIParseBar(self.view);
     }
 
-    if (DYYYGetBool(@"DYYYHideChapterProgress")) {
-        DYYYHideChapterProgressBar(self.view);
-    }
-
     if (self.view.window && !self.view.hidden) {
         dyyyInteractionViewVisible = YES;
         dyyyActivePlaybackInteractionController = self;
@@ -16389,11 +16381,6 @@ static void DYYYHideChapterProgressBar(UIView *view) {
         // 延迟一帧，确保所有布局完成
         dispatch_async(dispatch_get_main_queue(), ^{
             DYYYHideVideoAIParseBar(self.view);
-        });
-    }
-    if (DYYYGetBool(@"DYYYHideChapterProgress")) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            DYYYHideChapterProgressBar(self.view);
         });
     }
 }
