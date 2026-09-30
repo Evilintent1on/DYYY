@@ -13338,8 +13338,13 @@ static BOOL DYYYAwemeModelMatchesConfiguredContentFilters(AWEAwemeModel *aweme,
     return %orig;
 }
 
+//屏蔽章节要点数据
 - (NSArray *)chapterList {
-    return %orig;
+	BOOL hideChapterList = DYYYGetBool(@"DYYYHideChapterProgress");
+	if (hideChapterList) {
+		return @[]; // 返回空数组
+	}
+	return %orig;
 }
 
 // 屏蔽共创数据
@@ -16144,51 +16149,6 @@ static void DYYYHideVideoAIParseBar(UIView *view) {
 }
 
 // 章节进度占位替换：按时间文本（如 "00:11"）识别，智能定位整个章节条容器
-static BOOL DYYYIsChapterTimeLabel(NSString *text) {
-    if (text.length < 5) return NO;
-    unichar c0 = [text characterAtIndex:0];
-    unichar c1 = [text characterAtIndex:1];
-    unichar c2 = [text characterAtIndex:2];
-    unichar c3 = [text characterAtIndex:3];
-    unichar c4 = [text characterAtIndex:4];
-    return (c0 >= '0' && c0 <= '9' && c1 >= '0' && c1 <= '9' &&
-            c2 == ':' &&
-            c3 >= '0' && c3 <= '9' && c4 >= '0' && c4 <= '9');
-}
-
-static void DYYYHideChapterProgressBar(UIView *view) {
-    if (!view) return;
-    if ([view isKindOfClass:[UILabel class]]) {
-        UILabel *label = (UILabel *)view;
-        if (DYYYIsChapterTimeLabel(label.text)) {
-            // 往上找两层定位章节容器
-            UIView *container = label.superview.superview;
-            if (!container) container = label.superview;
-            UIView *superview = container.superview;
-            if (container && superview && container != label &&
-                ![container.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) {
-                CGRect frame = container.frame;
-                NSInteger index = [superview.subviews indexOfObject:container];
-                UIView *placeholder = [[UIView alloc] initWithFrame:frame];
-                placeholder.accessibilityIdentifier = @"DYYYChapterPlaceholder";
-                placeholder.backgroundColor = [UIColor clearColor];
-                placeholder.userInteractionEnabled = NO;
-                placeholder.autoresizingMask = container.autoresizingMask;
-                if (index != NSNotFound) {
-                    [superview insertSubview:placeholder atIndex:index];
-                } else {
-                    [superview addSubview:placeholder];
-                }
-                [container removeFromSuperview];
-            }
-            return;
-        }
-    }
-    for (UIView *subview in [view.subviews copy]) {
-        DYYYHideChapterProgressBar(subview);
-    }
-}
-
 %hook AWEPlayInteractionViewController
 
 - (void)onVideoPlayerViewDoubleClicked:(id)arg1 {
