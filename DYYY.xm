@@ -16163,25 +16163,31 @@ static void DYYYHideChapterProgressBar(UIView *view) {
     if ([view isKindOfClass:[UILabel class]]) {
         UILabel *label = (UILabel *)view;
         if (DYYYIsChapterTimeLabel(label.text)) {
-            // 往上找两层定位章节容器
-            UIView *container = label.superview.superview;
-            if (!container) container = label.superview;
-            UIView *superview = container.superview;
-            if (container && superview && container != label &&
-                ![container.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) {
-                CGRect frame = container.frame;
-                NSInteger index = [superview.subviews indexOfObject:container];
+            // 从标签往上找 AWEDemaciaChapterProgressSlider（FLEX 实测 7 层）
+            UIView *slider = label.superview;
+            while (slider) {
+                NSString *cn = NSStringFromClass([slider class]);
+                if ([cn isEqualToString:@"AWEDemaciaChapterProgressSlider"]) {
+                    break;
+                }
+                slider = slider.superview;
+            }
+            if (!slider) return;
+            UIView *superview = slider.superview;
+            if (superview && ![slider.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) {
+                CGRect frame = slider.frame;
+                NSInteger index = [superview.subviews indexOfObject:slider];
                 UIView *placeholder = [[UIView alloc] initWithFrame:frame];
                 placeholder.accessibilityIdentifier = @"DYYYChapterPlaceholder";
                 placeholder.backgroundColor = [UIColor clearColor];
                 placeholder.userInteractionEnabled = NO;
-                placeholder.autoresizingMask = container.autoresizingMask;
+                placeholder.autoresizingMask = slider.autoresizingMask;
                 if (index != NSNotFound) {
                     [superview insertSubview:placeholder atIndex:index];
                 } else {
                     [superview addSubview:placeholder];
                 }
-                [container removeFromSuperview];
+                [slider removeFromSuperview];
             }
             return;
         }
