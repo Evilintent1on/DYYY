@@ -16158,51 +16158,30 @@ static BOOL DYYYIsChapterTimeLabel(NSString *text) {
             c3 >= '0' && c3 <= '9' && c4 >= '0' && c4 <= '9');
 }
 
-static void DYYYReplaceWithPlaceholder(UIView *target) {
-    UIView *superview = target.superview;
-    if (!target || !superview) return;
-    if ([target.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) return;
-    CGRect frame = target.frame;
-    NSInteger index = [superview.subviews indexOfObject:target];
-    UIView *placeholder = [[UIView alloc] initWithFrame:frame];
-    placeholder.accessibilityIdentifier = @"DYYYChapterPlaceholder";
-    placeholder.backgroundColor = [UIColor clearColor];
-    placeholder.userInteractionEnabled = NO;
-    placeholder.autoresizingMask = target.autoresizingMask;
-    if (index != NSNotFound) {
-        [superview insertSubview:placeholder atIndex:index];
-    } else {
-        [superview addSubview:placeholder];
-    }
-    [target removeFromSuperview];
-}
-
 static void DYYYHideChapterProgressBar(UIView *view) {
     if (!view) return;
     if ([view isKindOfClass:[UILabel class]]) {
         UILabel *label = (UILabel *)view;
         if (DYYYIsChapterTimeLabel(label.text)) {
-            // 从标签往上找章节条容器：模糊匹配类名含 Chapter 的 Slider/Progress 视图
-            UIView *p = label.superview;
-            UIView *slider = nil;
-            while (p) {
-                NSString *cn = NSStringFromClass([p class]);
-                if ([cn containsString:@"Chapter"] && ([cn containsString:@"Slider"] || [cn containsString:@"Progress"])) {
-                    slider = p;
-                    break;
+            // 往上找两层定位章节容器
+            UIView *container = label.superview.superview;
+            if (!container) container = label.superview;
+            UIView *superview = container.superview;
+            if (container && superview && container != label &&
+                ![container.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) {
+                CGRect frame = container.frame;
+                NSInteger index = [superview.subviews indexOfObject:container];
+                UIView *placeholder = [[UIView alloc] initWithFrame:frame];
+                placeholder.accessibilityIdentifier = @"DYYYChapterPlaceholder";
+                placeholder.backgroundColor = [UIColor clearColor];
+                placeholder.userInteractionEnabled = NO;
+                placeholder.autoresizingMask = container.autoresizingMask;
+                if (index != NSNotFound) {
+                    [superview insertSubview:placeholder atIndex:index];
+                } else {
+                    [superview addSubview:placeholder];
                 }
-                // 超过 10 层就停，防止走到根视图
-                p = p.superview;
-            }
-            if (slider) {
-                DYYYReplaceWithPlaceholder(slider);
-            } else {
-                // 找不到则回退到两层版（保证不比原来差）
-                UIView *container = label.superview.superview;
-                if (!container) container = label.superview;
-                if (container && container != label) {
-                    DYYYReplaceWithPlaceholder(container);
-                }
+                [container removeFromSuperview];
             }
             return;
         }
