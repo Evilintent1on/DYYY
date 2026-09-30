@@ -16147,7 +16147,8 @@ static void DYYYHideVideoAIParseBar(UIView *view) {
 
 // 章节进度占位替换：按时间文本（如 "00:11"）识别，智能定位整个章节条容器
 static BOOL DYYYIsChapterTimeLabel(NSString *text) {
-    if (text.length < 5) return NO;
+    // 章节标签格式 "00:11 标题"，必须带标题；纯 "00:12" 是视频进度条时间，不能动
+    if (text.length <= 5) return NO;
     unichar c0 = [text characterAtIndex:0];
     unichar c1 = [text characterAtIndex:1];
     unichar c2 = [text characterAtIndex:2];
