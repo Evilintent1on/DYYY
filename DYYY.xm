@@ -16145,88 +16145,52 @@ static void DYYYHideVideoAIParseBar(UIView *view) {
     }
 }
 
-// 章节进度占位替换：先按类名 AWEDemaciaChapterProgressSlider 定位，找不到则按时间文本兜底
-static BOOL DYYYReplaceViewWithPlaceholder(UIView *view) {
-    UIView *superview = view.superview;
-    if (!superview) return NO;
-    if ([view.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) return NO;
-    CGRect frame = view.frame;
-    NSInteger index = [superview.subviews indexOfObject:view];
-    UIView *placeholder = [[UIView alloc] initWithFrame:frame];
-    placeholder.accessibilityIdentifier = @"DYYYChapterPlaceholder";
-    placeholder.backgroundColor = [UIColor clearColor];
-    placeholder.userInteractionEnabled = NO;
-    placeholder.autoresizingMask = view.autoresizingMask;
-    if (index != NSNotFound) {
-        [superview insertSubview:placeholder atIndex:index];
-    } else {
-        [superview addSubview:placeholder];
-    }
-    [view removeFromSuperview];
-    return YES;
-}
-
-static BOOL DYYYFindChapterSliderByClass(UIView *view) {
-    if (!view) return NO;
-    NSString *className = NSStringFromClass([view class]);
-    // 模糊匹配：类名包含 ChapterProgressSlider 即可
-    if ([className containsString:@"ChapterProgressSlider"]) {
-        return DYYYReplaceViewWithPlaceholder(view);
-    }
-    for (UIView *subview in [view.subviews copy]) {
-        if (DYYYFindChapterSliderByClass(subview)) return YES;
-    }
-    return NO;
-}
-
-static BOOL DYYYIsChapterTimeText(NSString *text) {
-    if (!text || text.length < 4 || text.length > 5) return NO;
+// 章节进度占位替换：按时间文本（如 "00:11"）识别，智能定位整个章节条容器
+static BOOL DYYYIsChapterTimeLabel(NSString *text) {
+    if (text.length < 5) return NO;
     unichar c0 = [text characterAtIndex:0];
     unichar c1 = [text characterAtIndex:1];
     unichar c2 = [text characterAtIndex:2];
     unichar c3 = [text characterAtIndex:3];
-    if (c0 < '0' || c0 > '9' || c1 < '0' || c1 > '9') return NO;
-    if (c2 != ':') return NO;
-    if (c3 < '0' || c3 > '9') return NO;
-    if (text.length == 5) {
-        unichar c4 = [text characterAtIndex:4];
-        if (c4 < '0' || c4 > '9') return NO;
-    }
-    return YES;
-}
-
-static BOOL DYYYFindChapterSliderByTimeLabel(UIView *view) {
-    if (!view) return NO;
-    if ([view isKindOfClass:[UILabel class]]) {
-        UILabel *label = (UILabel *)view;
-        if (DYYYIsChapterTimeText(label.text)) {
-            // 往上找 AWEDemaciaChapterProgressSlider，找不到则用 superview.superview
-            UIView *p = label.superview;
-            while (p) {
-                NSString *cn = NSStringFromClass([p class]);
-                if ([cn containsString:@"ChapterProgressSlider"]) {
-                    return DYYYReplaceViewWithPlaceholder(p);
-                }
-                p = p.superview;
-            }
-            // 兜底：两层
-            UIView *container = label.superview.superview;
-            if (container) return DYYYReplaceViewWithPlaceholder(container);
-        }
-    }
-    for (UIView *subview in [view.subviews copy]) {
-        if (DYYYFindChapterSliderByTimeLabel(subview)) return YES;
-    }
-    return NO;
+    unichar c4 = [text characterAtIndex:4];
+    return (c0 >= '0' && c0 <= '9' && c1 >= '0' && c1 <= '9' &&
+            c2 == ':' &&
+            c3 >= '0' && c3 <= '9' && c4 >= '0' && c4 <= '9');
 }
 
 static void DYYYHideChapterProgressBar(UIView *view) {
     if (!view) return;
-    // 先按类名找，找不到再按时间文本兜底
-    if (!DYYYFindChapterSliderByClass(view)) {
-        DYYYFindChapterSliderByTimeLabel(view);
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        if (DYYYIsChapterTimeLabel(label.text)) {
+            // 往上找两层定位章节容器
+            UIView *container = label.superview.superview;
+            if (!container) container = label.superview;
+            UIView *superview = container.superview;
+            if (container && superview && container != label &&
+                ![container.accessibilityIdentifier isEqualToString:@"DYYYChapterPlaceholder"]) {
+                CGRect frame = container.frame;
+                NSInteger index = [superview.subviews indexOfObject:container];
+                UIView *placeholder = [[UIView alloc] initWithFrame:frame];
+                placeholder.accessibilityIdentifier = @"DYYYChapterPlaceholder";
+                placeholder.backgroundColor = [UIColor clearColor];
+                placeholder.userInteractionEnabled = NO;
+                placeholder.autoresizingMask = container.autoresizingMask;
+                if (index != NSNotFound) {
+                    [superview insertSubview:placeholder atIndex:index];
+                } else {
+                    [superview addSubview:placeholder];
+                }
+                [container removeFromSuperview];
+            }
+            return;
+        }
+    }
+    for (UIView *subview in [view.subviews copy]) {
+        DYYYHideChapterProgressBar(subview);
     }
 }
+
 %hook AWEPlayInteractionViewController
 
 - (void)onVideoPlayerViewDoubleClicked:(id)arg1 {
