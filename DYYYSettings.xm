@@ -3681,14 +3681,6 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
               @"cellType" : @37,
               @"imageName" : @"ic_eyeslash_outlined_16"
           },
-          @{
-              @"identifier" : @"DYYYHideVideoAIParse",
-              @"title" : @"隐藏视频AI解析",
-              @"subTitle" : @"隐藏视频下方出现的AI解析条",
-              @"detail" : @"",
-              @"cellType" : @37,
-              @"imageName" : @"ic_eyeslash_outlined_16"
-          },
           @{@"identifier" : @"DYYYHidePopover",
             @"title" : @"隐藏上次看到",
             @"detail" : @"",
@@ -3701,12 +3693,6 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
             @"imageName" : @"ic_eyeslash_outlined_16"},
           @{@"identifier" : @"DYYYHideRightLabel",
             @"title" : @"隐藏昵称右侧",
-            @"detail" : @"",
-            @"cellType" : @6,
-            @"imageName" : @"ic_eyeslash_outlined_16"},
-          @{@"identifier" : @"DYYYHideChapterPoints",
-            @"title" : @"隐藏章节要点",
-            @"subTitle" : @"隐藏昵称旁边的章节要点按钮",
             @"detail" : @"",
             @"cellType" : @6,
             @"imageName" : @"ic_eyeslash_outlined_16"},
