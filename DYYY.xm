@@ -13338,9 +13338,11 @@ static BOOL DYYYAwemeModelMatchesConfiguredContentFilters(AWEAwemeModel *aweme,
     return %orig;
 }
 
-//隐藏章节进度
+//隐藏章节进度：返回空数组，章节视图不创建（会上移，但不影响进度条）
 - (NSArray *)chapterList {
-    // 返回原始数据，让章节视图正常创建，后续用占位替换隐藏
+    if (DYYYGetBool(@"DYYYHideChapterProgress")) {
+        return @[];
+    }
     return %orig;
 }
 
