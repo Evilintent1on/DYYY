@@ -4910,16 +4910,16 @@ static void DYYYSyncHiddenFeedAnchorArrangedView(UIView *inner);
 
 %end
 
-// ========== 隐藏喜欢（密码 + 三击"喜欢"解锁 / 长按"喜欢"重新隐藏） ==========
+// ========== 隐藏喜欢（密码 + 长按"喜欢" 2 秒解锁/重新隐藏） ==========
 // AWELikeWorkViewController 在头文件里只有 @class 前向声明，补一个接口声明
 // 让编译器知道它是 UIViewController 子类（否则发消息/传参都会编译报错）
 @interface AWELikeWorkViewController : UIViewController
 @end
 
 // 开启 DYYYHideFavLike 并设置 DYYYFavLikePassword 后：
-// - 个人主页「喜欢」tab 的列表被隐藏，显示原生"暂无内容"（干净空态，不出现"上拉加载更多"/"不可见"）
-// - 锁定时三击 tab 栏"喜欢"二字弹出密码框；密码正确即时恢复（无网络请求）
-// - 解锁后长按"喜欢"二字 1 秒可重新隐藏；解锁状态只保存在内存，杀进程重进后重新上锁
+// - 个人主页「喜欢」tab 的列表被整体隐藏，显示"暂无内容"占位（无"上拉加载更多"/"不可见"提示）
+// - 长按 tab 栏"喜欢"二字 2 秒：锁定时弹密码框，解锁后再次长按 2 秒重新隐藏
+// - 密码正确即时恢复真实数据（无网络请求）；解锁状态只保存在内存，杀进程重进后重新上锁
 static BOOL DYYYFavLikeUnlocked = NO;
 
 static BOOL DYYYFavLikeHideEnabled(void) {
@@ -4963,35 +4963,16 @@ static UIView *DYYYFavLikeFindLikeTabLabel(UIView *view) {
     return nil;
 }
 
-// 给"喜欢"tab 标题加手势（只加一次）：三击解锁（锁定时弹密码），长按 2 秒重新隐藏（已解锁时）
+// 给"喜欢"tab 标题加长按 2 秒（只加一次）：锁定时弹密码框，已解锁时重新隐藏
 static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController *target) {
     static char kDYYYFavLikeTabGestureKey;
     if (objc_getAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey)) return;
     objc_setAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     tabView.userInteractionEnabled = YES;
-    // 三击：锁定时弹出密码框
-    UITapGestureRecognizer *tripleTap = [[UITapGestureRecognizer alloc] initWithTarget:target action:@selector(dyyy_favLikeTripleTap:)];
-    tripleTap.numberOfTapsRequired = 3;
-    tripleTap.cancelsTouchesInView = NO;
-    [tabView addGestureRecognizer:tripleTap];
-    // 长按 2 秒：已解锁时重新隐藏
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:@selector(dyyy_favLikeLongPress:)];
     longPress.minimumPressDuration = 2.0;
     longPress.cancelsTouchesInView = NO;
     [tabView addGestureRecognizer:longPress];
-}
-
-// 在 view 层级里找文字完全等于指定文本的 UILabel
-static UILabel *DYYYFavLikeFindLabelWithText(UIView *view, NSString *text) {
-    if (!view) return nil;
-    if ([view isKindOfClass:[UILabel class]]) {
-        if ([[(UILabel *)view text] isEqualToString:text]) return (UILabel *)view;
-    }
-    for (UIView *sub in view.subviews) {
-        UILabel *found = DYYYFavLikeFindLabelWithText(sub, text);
-        if (found) return found;
-    }
-    return nil;
 }
 
 // 锁定时隐藏"上拉加载更多"和"由于被隐藏或删除"提示，保证显示干净的"暂无内容"空态
@@ -5023,11 +5004,68 @@ static void DYYYFavLikeUnhideViews(UIView *view) {
     }
 }
 
+// 锁定时显示的"暂无内容"占位（样式对标原生空态），每个 VC 的 view 只建一次
+static UIView *DYYYFavLikeEmptyPlaceholder(UIView *parentView) {
+    static char kDYYYFavLikePlaceholderKey;
+    UIView *placeholder = objc_getAssociatedObject(parentView, &kDYYYFavLikePlaceholderKey);
+    if (!placeholder) {
+        placeholder = [[UIView alloc] init];
+        placeholder.backgroundColor = [UIColor clearColor];
+        placeholder.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+        UILabel *titleLabel = [[UILabel alloc] init];
+        titleLabel.text = @"暂无内容";
+        titleLabel.font = [UIFont boldSystemFontOfSize:20];
+        titleLabel.textColor = [UIColor whiteColor];
+        titleLabel.textAlignment = NSTextAlignmentCenter;
+        titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        [placeholder addSubview:titleLabel];
+
+        UILabel *subtitleLabel = [[UILabel alloc] init];
+        subtitleLabel.text = @"喜欢的作品会展示在这里";
+        subtitleLabel.font = [UIFont systemFontOfSize:14];
+        subtitleLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+        subtitleLabel.textAlignment = NSTextAlignmentCenter;
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        [placeholder addSubview:subtitleLabel];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [titleLabel.centerXAnchor constraintEqualToAnchor:placeholder.centerXAnchor],
+            [titleLabel.centerYAnchor constraintEqualToAnchor:placeholder.centerYAnchor constant:-30],
+            [subtitleLabel.centerXAnchor constraintEqualToAnchor:placeholder.centerXAnchor],
+            [subtitleLabel.topAnchor constraintEqualToAnchor:titleLabel.bottomAnchor constant:12],
+        ]];
+
+        objc_setAssociatedObject(parentView, &kDYYYFavLikePlaceholderKey, placeholder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return placeholder;
+}
+
+// 根据锁定状态切换 UI：锁定时藏起整个列表（footer/提示一起消失）+ 显示"暂无内容"占位；
+// 解锁时恢复列表、收起占位。直接操作 view 层级，不依赖抖音内部的空态逻辑。
+static void DYYYFavLikeUpdateLockedUI(UIViewController *vc) {
+    if (!vc || !vc.view) return;
+    UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+    UIView *placeholder = DYYYFavLikeEmptyPlaceholder(vc.view);
+    if (DYYYFavLikeIsLocked()) {
+        cv.hidden = YES;
+        placeholder.frame = vc.view.bounds;
+        if (placeholder.superview != vc.view) [vc.view addSubview:placeholder];
+        [vc.view bringSubviewToFront:placeholder];
+        placeholder.hidden = NO;
+        DYYYFavLikeHideUnwantedViews(vc.view);
+    } else {
+        cv.hidden = NO;
+        placeholder.hidden = YES;
+        DYYYFavLikeUnhideViews(vc.view);
+    }
+}
+
 // 重新隐藏：解锁后长按"喜欢"调用
 static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
     dispatch_async(dispatch_get_main_queue(), ^{
-        DYYYFavLikeHideUnwantedViews(vc.view);
+        DYYYFavLikeUpdateLockedUI(vc);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
         [cv reloadData];
     });
@@ -5051,9 +5089,9 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
         NSString *password = DYYYFavLikePassword();
         if (password && [input isEqualToString:password]) {
             DYYYFavLikeUnlocked = YES;
-            // 真实数据一直在 dataManager 里（锁定时拒绝了所有写入），直接重载即现，无网络请求
+            // 真实数据一直在 dataManager 里（锁定时拒绝了所有写入），恢复列表显示，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
-                DYYYFavLikeUnhideViews(weakVC.view);
+                DYYYFavLikeUpdateLockedUI(weakVC);
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
                 [cv reloadData];
             });
@@ -12751,7 +12789,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    // 沿父级链往上找"喜欢"tab 标题，加手势：锁定时三击弹密码框，已解锁时长按 1 秒重新隐藏
+    // 沿父级链往上找"喜欢"tab 标题，加长按 2 秒：锁定时弹密码框，已解锁时重新隐藏
     UIViewController *parentVC = self.parentViewController;
     while (parentVC) {
         UIView *tabLabel = DYYYFavLikeFindLikeTabLabel(parentVC.view);
@@ -12761,43 +12799,29 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         }
         parentVC = parentVC.parentViewController;
     }
-    // 锁定时重载一次，把已加载的内容藏起来（比如设置里刚打开开关切回来时）
+    // 根据锁定状态切换 UI（比如设置里刚打开开关切回来时）
+    DYYYFavLikeUpdateLockedUI(self);
     if (DYYYFavLikeIsLocked()) {
-        DYYYFavLikeHideUnwantedViews(self.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
         [cv reloadData];
     }
 }
 
-// 锁定时每次布局都扫一遍，把后出现的"上拉加载更多"/"不可见"提示藏掉，只留干净的"暂无内容"
+// 锁定时每次布局都确保列表保持隐藏、占位在最上层（防止抖音把列表或提示又显示出来）
 - (void)viewDidLayoutSubviews {
     %orig;
     if (DYYYFavLikeIsLocked()) {
-        DYYYFavLikeHideUnwantedViews(self.view);
-        // 确保原生"暂无内容"可见（如果存在）
-        UILabel *emptyLabel = DYYYFavLikeFindLabelWithText(self.view, @"暂无内容");
-        if (emptyLabel) {
-            UIView *p = emptyLabel;
-            while (p && p != self.view) {
-                p.hidden = NO;
-                p = p.superview;
-            }
-        }
+        DYYYFavLikeUpdateLockedUI(self);
     }
 }
 
 %new
-// 三击"喜欢"：锁定时弹出密码框
-- (void)dyyy_favLikeTripleTap:(UITapGestureRecognizer *)gesture {
-    if (!DYYYFavLikeIsLocked()) return;
-    DYYYFavLikeShowPasswordAlert(self);
-}
-
-%new
-// 长按"喜欢" 2 秒：已解锁时重新隐藏
+// 长按"喜欢" 2 秒：锁定时弹密码框，已解锁时重新隐藏
 - (void)dyyy_favLikeLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
-    if (DYYYFavLikeHideEnabled() && DYYYFavLikePassword() != nil && DYYYFavLikeUnlocked) {
+    if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeShowPasswordAlert(self);
+    } else if (DYYYFavLikeHideEnabled() && DYYYFavLikePassword() != nil && DYYYFavLikeUnlocked) {
         DYYYFavLikeLockNow(self);
     }
 }
