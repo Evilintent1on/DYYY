@@ -5041,17 +5041,19 @@ static UIView *DYYYFavLikeEmptyPlaceholder(UIView *parentView) {
     return placeholder;
 }
 
-// 根据锁定状态切换 UI：锁定时藏起整个列表（footer/提示一起消失）+ 显示"暂无内容"占位；
-// 解锁时恢复列表、收起占位。直接操作 view 层级，不依赖抖音内部的空态逻辑。
+// 根据锁定状态切换 UI：锁定时藏起列表（footer/提示一起消失），在列表位置显示"暂无内容"占位；
+// 解锁时恢复列表、收起占位。占位只盖住 collectionView 的区域，不遮挡个人主页头部和 tab 栏。
 static void DYYYFavLikeUpdateLockedUI(UIViewController *vc) {
     if (!vc || !vc.view) return;
     UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-    UIView *placeholder = DYYYFavLikeEmptyPlaceholder(vc.view);
+    if (!cv || !cv.superview) return;
+    UIView *container = cv.superview;
+    UIView *placeholder = DYYYFavLikeEmptyPlaceholder(container);
     if (DYYYFavLikeIsLocked()) {
         cv.hidden = YES;
-        placeholder.frame = vc.view.bounds;
-        if (placeholder.superview != vc.view) [vc.view addSubview:placeholder];
-        [vc.view bringSubviewToFront:placeholder];
+        placeholder.frame = cv.frame;
+        if (placeholder.superview != container) [container addSubview:placeholder];
+        [container bringSubviewToFront:placeholder];
         placeholder.hidden = NO;
         DYYYFavLikeHideUnwantedViews(vc.view);
     } else {
