@@ -685,7 +685,8 @@ static NSSet<NSString *> *DYYYInlineTextInputIdentifiers(void) {
           @"DYYYSelfTitle",
           @"DYYYSheetBlurTransparent", @"DYYYTabBarHeight", @"DYYYTimelineVerticalPosition", @"DYYYTopBarTransparent",
           @"DYYYVideoBGColor", @"DYYYDanmuColor", @"DYYYLabelColor", @"DYYYProgressLabelColor",
-          @"DYYYEnableFloatClearButtonSize", @"DYYYSpeedButtonSize", @"DYYYSpeedSettings", @"DYYYAutoHideSpeedButtonTime"
+          @"DYYYEnableFloatClearButtonSize", @"DYYYSpeedButtonSize", @"DYYYSpeedSettings", @"DYYYAutoHideSpeedButtonTime",
+          @"DYYYFavLikePassword"
       ]];
     });
     return identifiers;
@@ -701,7 +702,8 @@ static NSString *DYYYInlineTextInputPlaceholder(NSString *identifier) {
         @"DYYYAutoHideSpeedButtonTime" : @"s",
         @"DYYYCommentContent" : @"不填则默认",
         @"DYYYVideoBGColor" : @"十六进制", @"DYYYDanmuColor" : @"十六进制或 random",
-        @"DYYYLabelColor" : @"十六进制", @"DYYYProgressLabelColor" : @"十六进制"
+        @"DYYYLabelColor" : @"十六进制", @"DYYYProgressLabelColor" : @"十六进制",
+        @"DYYYFavLikePassword" : @"设置解锁密码"
     };
     return placeholders[identifier] ?: @"不填则默认";
 }
@@ -916,6 +918,7 @@ static void DYYYApplyInlineTextFieldToCell(AWESettingsTableViewCell *cell) {
     textField.layer.borderColor = borderColor.CGColor;
     textField.keyboardAppearance = usesLightBackground ? UIKeyboardAppearanceDefault : UIKeyboardAppearanceDark;
     textField.keyboardType = DYYYInlineTextInputKeyboardType(identifier);
+    textField.secureTextEntry = [identifier isEqualToString:@"DYYYFavLikePassword"];
     textField.enabled = itemModel.isEnable;
     textField.alpha = itemModel.isEnable ? 1.0 : 0.35;
     if (!textField.isFirstResponder) {
@@ -5042,6 +5045,21 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
               @"detail" : @"",
               @"cellType" : @37,
               @"imageName" : @"ic_xiaoxihuazhonghua_outlined_20"
+          },
+          @{
+              @"identifier" : @"DYYYHideFavLike",
+              @"title" : @"隐藏喜欢和收藏",
+              @"subTitle" : @"开启并设置密码后，喜欢/收藏列表显示为空，需在个人主页摇一摇输入密码查看",
+              @"detail" : @"",
+              @"cellType" : @37,
+              @"imageName" : @"ic_eyeslash_outlined_16"
+          },
+          @{
+              @"identifier" : @"DYYYFavLikePassword",
+              @"title" : @"解锁密码",
+              @"detail" : @"",
+              @"cellType" : @26,
+              @"imageName" : @"ic_eyeslash_outlined_16"
           },
           @{
               @"identifier" : @"DYYYDoubleTapMenuSettings",

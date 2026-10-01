@@ -4910,6 +4910,150 @@ static void DYYYSyncHiddenFeedAnchorArrangedView(UIView *inner);
 
 %end
 
+// ========== 隐藏喜欢/收藏（密码 + 摇一摇解锁） ==========
+// 开启 DYYYHideFavLike 并设置 DYYYFavLikePassword 后：
+// - 个人主页「喜欢」「收藏」tab 的列表数据被清空，界面显示原生"暂无内容"
+// - 仅在个人主页摇一摇才会弹出密码框，其他方式不会
+// - 密码正确则恢复真实数据；解锁状态只保存在内存，杀进程重进后重新上锁
+static char kDYYYFavLikeRealDataKey;
+static BOOL DYYYFavLikeUnlocked = NO;
+
+static NSHashTable *DYYYFavLikeLockedControllers(void) {
+    static NSHashTable *table = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        table = [NSHashTable weakObjectsHashTable];
+    });
+    return table;
+}
+
+static BOOL DYYYFavLikeHideEnabled(void) {
+    return DYYYGetBoolCached(@"DYYYHideFavLike");
+}
+
+static NSString *DYYYFavLikePassword(void) {
+    NSString *pwd = DYYYGetString(@"DYYYFavLikePassword");
+    pwd = [pwd stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return pwd.length > 0 ? pwd : nil;
+}
+
+static BOOL DYYYFavLikeIsLocked(void) {
+    if (!DYYYFavLikeHideEnabled()) return NO;
+    if (DYYYFavLikePassword() == nil) return NO; // 未设置密码则不锁定，避免锁死
+    return !DYYYFavLikeUnlocked;
+}
+
+// 按类名模式判断是否为「喜欢 / 收藏」tab 的数据管理器。
+// 作品 tab 用的是 AWEUserPostsDataManager，同级 tab 应为类似命名的兄弟类；
+// 用模式而不用精确类名以扛改名，命中时打一条日志方便核对。
+static BOOL DYYYDataControllerIsLikeOrFavorite(id dataController) {
+    static NSMutableDictionary<NSString *, NSNumber *> *cache = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache = [NSMutableDictionary dictionary];
+    });
+    NSString *className = NSStringFromClass(object_getClass(dataController));
+    NSNumber *hit = cache[className];
+    if (hit) return hit.boolValue;
+    BOOL profileScope = [className containsString:@"User"] || [className containsString:@"Profile"] || [className containsString:@"My"];
+    BOOL likeScope = [className containsString:@"Like"];
+    BOOL favScope = [className containsString:@"Favor"] || [className containsString:@"Favour"] || [className containsString:@"Collect"];
+    BOOL result = profileScope && (likeScope || favScope);
+    cache[className] = @(result);
+    if (result) NSLog(@"[DYYY] 隐藏喜欢/收藏命中数据类: %@", className);
+    return result;
+}
+
+// 锁定状态下返回 YES（调用方清空数据并直接 return）；同时暂存真实数据以便解锁恢复
+static BOOL DYYYFavLikeFilterDataSource(id dataController, NSMutableArray *dataSource) {
+    if (!DYYYFavLikeIsLocked()) return NO;
+    if (!DYYYDataControllerIsLikeOrFavorite(dataController)) return NO;
+    if (dataSource.count > 0) {
+        objc_setAssociatedObject(dataController, &kDYYYFavLikeRealDataKey, [dataSource copy], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [DYYYFavLikeLockedControllers() addObject:dataController];
+    }
+    return YES;
+}
+
+static void DYYYFavLikeRestoreAll(void) {
+    NSHashTable *table = DYYYFavLikeLockedControllers();
+    for (id dc in [[table allObjects] copy]) {
+        if ([dc respondsToSelector:@selector(dyyy_restoreFavLikeRealData)]) {
+            [dc performSelector:@selector(dyyy_restoreFavLikeRealData)];
+        }
+        objc_setAssociatedObject(dc, &kDYYYFavLikeRealDataKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [table removeAllObjects];
+}
+
+static UIViewController *DYYYFavLikeTopViewController(void) {
+    UIWindow *window = UIApplication.sharedApplication.keyWindow;
+    UIViewController *vc = window.rootViewController;
+    while (vc.presentedViewController) {
+        vc = vc.presentedViewController;
+    }
+    if ([vc isKindOfClass:[UINavigationController class]]) {
+        vc = ((UINavigationController *)vc).topViewController;
+    } else if ([vc isKindOfClass:[UITabBarController class]]) {
+        vc = ((UITabBarController *)vc).selectedViewController;
+    }
+    return vc;
+}
+
+// 仅当个人主页在前台时摇一摇才弹密码，避免和 feed 页的摇一摇广告冲突
+static BOOL DYYYFavLikeProfileVisible(void) {
+    UIViewController *vc = DYYYFavLikeTopViewController();
+    while (vc) {
+        if ([NSStringFromClass([vc class]) containsString:@"Profile"]) return YES;
+        vc = vc.parentViewController;
+    }
+    return NO;
+}
+
+static void DYYYFavLikeShowPasswordAlert(void) {
+    UIViewController *topVC = DYYYFavLikeTopViewController();
+    if (!topVC || topVC.presentedViewController) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请输入密码"
+                                                                   message:@"查看喜欢和收藏的内容"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.secureTextEntry = YES;
+        textField.placeholder = @"解锁密码";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak UIAlertController *weakAlert = alert;
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        NSString *input = weakAlert.textFields.firstObject.text;
+        NSString *password = DYYYFavLikePassword();
+        if (password && [input isEqualToString:password]) {
+            DYYYFavLikeUnlocked = YES;
+            DYYYFavLikeRestoreAll();
+            [DYYYUtils showToast:@"已解锁"];
+        } else {
+            [DYYYUtils showToast:@"密码错误"];
+        }
+    }]];
+    [topVC presentViewController:alert animated:YES completion:nil];
+}
+
+static void DYYYFavLikeHandleShake(void) {
+    if (!DYYYFavLikeHideEnabled()) return;
+    if (DYYYFavLikePassword() == nil) return;
+    if (DYYYFavLikeUnlocked) return;
+    if (!DYYYFavLikeProfileVisible()) return;
+    DYYYFavLikeShowPasswordAlert();
+}
+
+// 摇一摇检测放在 group 之外，独立于"设置手势"开关
+%hook UIWindow
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
+    %orig;
+    if (motion == UIEventSubtypeMotionShake) {
+        DYYYFavLikeHandleShake();
+    }
+}
+%end
+
 %group DYYYSettingsGesture
 
 %hook UIWindow
@@ -12547,6 +12691,10 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 %hook AWEListDataController
 
 - (void)setDataSource:(NSMutableArray *)dataSource {
+    if (DYYYFavLikeFilterDataSource(self, dataSource)) {
+        %orig([NSMutableArray array]);
+        return;
+    }
     Class userPostsClass = objc_getClass("AWEUserPostsDataManager");
     if (userPostsClass && [self isKindOfClass:userPostsClass]) {
         %orig(dataSource);
@@ -12557,6 +12705,10 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 }
 
 - (void)setFilteredDataSource:(NSMutableArray *)filteredDataSource {
+    if (DYYYFavLikeFilterDataSource(self, filteredDataSource)) {
+        %orig([NSMutableArray array]);
+        return;
+    }
     Class userPostsClass = objc_getClass("AWEUserPostsDataManager");
     if (userPostsClass && [self isKindOfClass:userPostsClass]) {
         %orig(filteredDataSource);
@@ -12564,6 +12716,15 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
     NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:filteredDataSource];
     %orig(filtered);
+}
+
+%new
+// 隐藏喜欢/收藏：解锁后恢复暂存的真实数据（无网络请求，即时恢复）
+- (void)dyyy_restoreFavLikeRealData {
+    NSArray *realData = objc_getAssociatedObject(self, &kDYYYFavLikeRealDataKey);
+    if (realData.count > 0) {
+        ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setDataSource:), [realData mutableCopy]);
+    }
 }
 
 %end
