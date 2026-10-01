@@ -4975,6 +4975,30 @@ static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController
     [tabView addGestureRecognizer:longPress];
 }
 
+// 锁定时用 timer 每 0.5 秒扫一遍，把"上拉加载更多"/"不可见"提示藏掉。
+// 比 viewDidLayoutSubviews 更可靠——提示出现时机不固定，不一定触发布局。
+static NSTimer *DYYYFavLikeScanTimer = nil;
+static __weak UIViewController *DYYYFavLikeScanVC = nil;
+
+static void DYYYFavLikeStopScanTimer(void) {
+    [DYYYFavLikeScanTimer invalidate];
+    DYYYFavLikeScanTimer = nil;
+    DYYYFavLikeScanVC = nil;
+}
+
+static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
+    DYYYFavLikeStopScanTimer();
+    DYYYFavLikeScanVC = vc;
+    DYYYFavLikeScanTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(__unused NSTimer *t) {
+        UIViewController *scanVC = DYYYFavLikeScanVC;
+        if (!scanVC || !DYYYFavLikeIsLocked()) {
+            DYYYFavLikeStopScanTimer();
+            return;
+        }
+        DYYYFavLikeHideUnwantedViews(scanVC.view);
+    }];
+}
+
 // 锁定时隐藏"上拉加载更多"/"由于被隐藏或删除"提示（UILabel 文字或 UIButton 标题），打上标记以便解锁恢复
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
     if (!view) return;
@@ -5029,6 +5053,7 @@ static void DYYYFavLikeLockNow(UIViewController *vc) {
         DYYYFavLikeHideUnwantedViews(vc.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
         [cv reloadData];
+        DYYYFavLikeStartScanTimer(vc);
     });
     [DYYYUtils showToast:@"已隐藏"];
 }
@@ -5050,6 +5075,7 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
         NSString *password = DYYYFavLikePassword();
         if (password && [input isEqualToString:password]) {
             DYYYFavLikeUnlocked = YES;
+            DYYYFavLikeStopScanTimer();
             // 真实数据一直在 dataManager 里（锁定时拒绝了所有写入），恢复列表显示，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
                 DYYYFavLikeUnhideViews(weakVC.view);
@@ -12740,54 +12766,6 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 
 %end
 
-// 隐藏喜欢：锁定时，任何 UILabel/UIButton 一旦文字变成"上拉加载更多"/"由于被隐藏或删除"就地隐藏。
-// 比在 viewDidLayoutSubviews 里扫更可靠——文字出现时机不固定，setText 时抓一定能抓到。
-// 未锁定时，如果 label 是被我们藏过的，恢复显示（cell 重用时文字会变回来）。
-%hook UILabel
-- (void)setText:(NSString *)text {
-    %orig;
-    if (DYYYFavLikeIsLocked()) {
-        if (DYYYFavLikeIsUnwantedText(text)) {
-            DYYYFavLikeMarkHidden(self);
-        }
-    } else {
-        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
-            self.hidden = NO;
-            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-    }
-}
-- (void)setAttributedText:(NSAttributedString *)attributedText {
-    %orig;
-    if (DYYYFavLikeIsLocked()) {
-        if (DYYYFavLikeIsUnwantedText(attributedText.string)) {
-            DYYYFavLikeMarkHidden(self);
-        }
-    } else {
-        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
-            self.hidden = NO;
-            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-    }
-}
-%end
-
-%hook UIButton
-- (void)setTitle:(NSString *)title forState:(UIControlState)state {
-    %orig;
-    if (DYYYFavLikeIsLocked()) {
-        if (DYYYFavLikeIsUnwantedText(title)) {
-            DYYYFavLikeMarkHidden(self);
-        }
-    } else {
-        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
-            self.hidden = NO;
-            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-    }
-}
-%end
-
 %hook AWELikeWorkViewController
 
 // 兜底：即使 VC 不走 dataSource getter 取数，项数归零也能隐藏
@@ -12813,6 +12791,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         DYYYFavLikeHideUnwantedViews(self.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
         [cv reloadData];
+        DYYYFavLikeStartScanTimer(self);
     }
 }
 
