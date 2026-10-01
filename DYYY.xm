@@ -4911,6 +4911,11 @@ static void DYYYSyncHiddenFeedAnchorArrangedView(UIView *inner);
 %end
 
 // ========== 隐藏喜欢（密码 + 长按"喜欢"二字 2 秒解锁） ==========
+// AWELikeWorkViewController 在头文件里只有 @class 前向声明，补一个接口声明
+// 让编译器知道它是 UIViewController 子类（否则发消息/传参都会编译报错）
+@interface AWELikeWorkViewController : UIViewController
+@end
+
 // 开启 DYYYHideFavLike 并设置 DYYYFavLikePassword 后：
 // - 个人主页「喜欢」tab 的列表被隐藏，显示原生"暂无内容"
 // - 长按 tab 栏"喜欢"二字 2 秒才会弹出密码框，其他方式不会出现
@@ -12681,8 +12686,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     // 沿父级链往上找"喜欢"tab 标题，给它加 2 秒长按：锁定时长按"喜欢"二字弹密码框
-    // 注意：AWELikeWorkViewController 只有前向声明，用方括号语法避免点语法编译错误
-    UIViewController *parentVC = [self parentViewController];
+    UIViewController *parentVC = self.parentViewController;
     while (parentVC) {
         UIView *tabLabel = DYYYFavLikeFindLikeTabLabel(parentVC.view);
         if (tabLabel) {
@@ -12693,7 +12697,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
     // 锁定时重载一次，把已加载的内容藏起来（比如设置里刚打开开关切回来时）
     if (DYYYFavLikeIsLocked()) {
-        UICollectionView *cv = DYYYFavLikeFindCollectionView([self view]);
+        UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
         [cv reloadData];
     }
 }
