@@ -4975,6 +4975,19 @@ static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController
     [tabView addGestureRecognizer:longPress];
 }
 
+static char kDYYYFavLikeHiddenMarkKey;
+
+static void DYYYFavLikeMarkHidden(UIView *view) {
+    view.hidden = YES;
+    objc_setAssociatedObject(view, &kDYYYFavLikeHiddenMarkKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// 判断一段文字是不是要隐藏的提示（上拉加载更多 / 作品不可见）
+static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
+    if (text.length == 0) return NO;
+    return [text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"];
+}
+
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
     if (!view) return;
     if ([view isKindOfClass:[UILabel class]]) {
@@ -5008,19 +5021,6 @@ static void DYYYFavLikeUnhideViews(UIView *view) {
 }
 
 // 标记：这个 view 是被隐藏喜欢功能藏起来的（解锁时只恢复这些，避免误伤抖音原生隐藏的视图）
-static char kDYYYFavLikeHiddenMarkKey;
-
-static void DYYYFavLikeMarkHidden(UIView *view) {
-    view.hidden = YES;
-    objc_setAssociatedObject(view, &kDYYYFavLikeHiddenMarkKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-// 判断一段文字是不是要隐藏的提示（上拉加载更多 / 作品不可见）
-static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
-    if (text.length == 0) return NO;
-    return [text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"];
-}
-
 // 锁定时用 timer 每 0.5 秒扫一遍，把"上拉加载更多"/"不可见"提示藏掉。
 // 比 viewDidLayoutSubviews 更可靠——提示出现时机不固定，不一定触发布局。
 static NSTimer *DYYYFavLikeScanTimer = nil;
