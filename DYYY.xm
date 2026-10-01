@@ -12681,7 +12681,8 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     // 沿父级链往上找"喜欢"tab 标题，给它加 2 秒长按：锁定时长按"喜欢"二字弹密码框
-    UIViewController *parentVC = self.parentViewController;
+    // 注意：AWELikeWorkViewController 只有前向声明，用方括号语法避免点语法编译错误
+    UIViewController *parentVC = [self parentViewController];
     while (parentVC) {
         UIView *tabLabel = DYYYFavLikeFindLikeTabLabel(parentVC.view);
         if (tabLabel) {
@@ -12692,7 +12693,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
     // 锁定时重载一次，把已加载的内容藏起来（比如设置里刚打开开关切回来时）
     if (DYYYFavLikeIsLocked()) {
-        UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
+        UICollectionView *cv = DYYYFavLikeFindCollectionView([self view]);
         [cv reloadData];
     }
 }
