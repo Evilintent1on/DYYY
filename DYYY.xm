@@ -5021,7 +5021,6 @@ static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
     if (text.length == 0) return NO;
     return [text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"];
 }
-}
 
 // 重新隐藏：解锁后长按"喜欢"调用
 static void DYYYFavLikeLockNow(UIViewController *vc) {
