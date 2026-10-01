@@ -4964,6 +4964,24 @@ static BOOL DYYYDataControllerIsLikeOrFavorite(id dataController) {
     return result;
 }
 
+// ===== 调试探针：抓喜欢/收藏 tab 的真实数据类名（调试版专用，正式版删除） =====
+static const BOOL kDYYYFavLikeDebugNames = YES;
+
+static void DYYYFavLikeDebugLogDataController(id dataController) {
+    if (!kDYYYFavLikeDebugNames) return;
+    NSString *className = NSStringFromClass(object_getClass(dataController));
+    dispatch_async(dispatch_get_main_queue(), ^{
+        static NSMutableSet<NSString *> *seen = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{ seen = [NSMutableSet set]; });
+        if ([seen containsObject:className]) return;
+        [seen addObject:className];
+        // 只在个人主页可见时弹，避免 feed/评论等页面的数据类刷屏
+        if (!DYYYFavLikeProfileVisible()) return;
+        [DYYYUtils showToast:[NSString stringWithFormat:@"数据类: %@", className]];
+    });
+}
+
 // 锁定状态下返回 YES（调用方清空数据并直接 return）；同时暂存真实数据以便解锁恢复
 static BOOL DYYYFavLikeFilterDataSource(id dataController, NSMutableArray *dataSource) {
     if (!DYYYFavLikeIsLocked()) return NO;
@@ -12691,6 +12709,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 %hook AWEListDataController
 
 - (void)setDataSource:(NSMutableArray *)dataSource {
+    DYYYFavLikeDebugLogDataController(self);
     if (DYYYFavLikeFilterDataSource(self, dataSource)) {
         %orig([NSMutableArray array]);
         return;
@@ -12705,6 +12724,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 }
 
 - (void)setFilteredDataSource:(NSMutableArray *)filteredDataSource {
+    DYYYFavLikeDebugLogDataController(self);
     if (DYYYFavLikeFilterDataSource(self, filteredDataSource)) {
         %orig([NSMutableArray array]);
         return;
