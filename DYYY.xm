@@ -4975,13 +4975,19 @@ static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController
     [tabView addGestureRecognizer:longPress];
 }
 
-// 锁定时隐藏"上拉加载更多"和"由于被隐藏或删除"提示，保证显示干净的"暂无内容"空态
+// 锁定时隐藏"上拉加载更多"/"由于被隐藏或删除"提示（UILabel 文字或 UIButton 标题），打上标记以便解锁恢复
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
     if (!view) return;
     if ([view isKindOfClass:[UILabel class]]) {
-        NSString *text = [(UILabel *)view text];
-        if (text.length > 0 && ([text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"])) {
-            view.hidden = YES;
+        UILabel *label = (UILabel *)view;
+        if (DYYYFavLikeIsUnwantedText(label.text) || DYYYFavLikeIsUnwantedText(label.attributedText.string)) {
+            DYYYFavLikeMarkHidden(view);
+            return;
+        }
+    } else if ([view isKindOfClass:[UIButton class]]) {
+        UIButton *btn = (UIButton *)view;
+        if (DYYYFavLikeIsUnwantedText([btn titleForState:UIControlStateNormal])) {
+            DYYYFavLikeMarkHidden(view);
             return;
         }
     }
@@ -4990,84 +4996,38 @@ static void DYYYFavLikeHideUnwantedViews(UIView *view) {
     }
 }
 
-// 解锁时恢复之前隐藏的提示视图（避免一直隐藏）
+// 解锁时只恢复被我们标记过的视图
 static void DYYYFavLikeUnhideViews(UIView *view) {
     if (!view) return;
-    if ([view isKindOfClass:[UILabel class]]) {
-        NSString *text = [(UILabel *)view text];
-        if (text.length > 0 && ([text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"])) {
-            view.hidden = NO;
-        }
+    if (objc_getAssociatedObject(view, &kDYYYFavLikeHiddenMarkKey)) {
+        view.hidden = NO;
+        objc_setAssociatedObject(view, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     for (UIView *sub in view.subviews) {
         DYYYFavLikeUnhideViews(sub);
     }
 }
 
-// 锁定时显示的"暂无内容"占位（样式对标原生空态），每个 VC 的 view 只建一次
-static UIView *DYYYFavLikeEmptyPlaceholder(UIView *parentView) {
-    static char kDYYYFavLikePlaceholderKey;
-    UIView *placeholder = objc_getAssociatedObject(parentView, &kDYYYFavLikePlaceholderKey);
-    if (!placeholder) {
-        placeholder = [[UIView alloc] init];
-        placeholder.backgroundColor = [UIColor clearColor];
-        placeholder.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+// 标记：这个 view 是被隐藏喜欢功能藏起来的（解锁时只恢复这些，避免误伤抖音原生隐藏的视图）
+static char kDYYYFavLikeHiddenMarkKey;
 
-        UILabel *titleLabel = [[UILabel alloc] init];
-        titleLabel.text = @"暂无内容";
-        titleLabel.font = [UIFont boldSystemFontOfSize:20];
-        titleLabel.textColor = [UIColor whiteColor];
-        titleLabel.textAlignment = NSTextAlignmentCenter;
-        titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-        [placeholder addSubview:titleLabel];
-
-        UILabel *subtitleLabel = [[UILabel alloc] init];
-        subtitleLabel.text = @"喜欢的作品会展示在这里";
-        subtitleLabel.font = [UIFont systemFontOfSize:14];
-        subtitleLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
-        subtitleLabel.textAlignment = NSTextAlignmentCenter;
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-        [placeholder addSubview:subtitleLabel];
-
-        [NSLayoutConstraint activateConstraints:@[
-            [titleLabel.centerXAnchor constraintEqualToAnchor:placeholder.centerXAnchor],
-            [titleLabel.centerYAnchor constraintEqualToAnchor:placeholder.centerYAnchor constant:-30],
-            [subtitleLabel.centerXAnchor constraintEqualToAnchor:placeholder.centerXAnchor],
-            [subtitleLabel.topAnchor constraintEqualToAnchor:titleLabel.bottomAnchor constant:12],
-        ]];
-
-        objc_setAssociatedObject(parentView, &kDYYYFavLikePlaceholderKey, placeholder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    return placeholder;
+static void DYYYFavLikeMarkHidden(UIView *view) {
+    view.hidden = YES;
+    objc_setAssociatedObject(view, &kDYYYFavLikeHiddenMarkKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-// 根据锁定状态切换 UI：锁定时藏起列表（footer/提示一起消失），在列表位置显示"暂无内容"占位；
-// 解锁时恢复列表、收起占位。占位只盖住 collectionView 的区域，不遮挡个人主页头部和 tab 栏。
-static void DYYYFavLikeUpdateLockedUI(UIViewController *vc) {
-    if (!vc || !vc.view) return;
-    UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-    if (!cv || !cv.superview) return;
-    UIView *container = cv.superview;
-    UIView *placeholder = DYYYFavLikeEmptyPlaceholder(container);
-    if (DYYYFavLikeIsLocked()) {
-        cv.hidden = YES;
-        placeholder.frame = cv.frame;
-        if (placeholder.superview != container) [container addSubview:placeholder];
-        [container bringSubviewToFront:placeholder];
-        placeholder.hidden = NO;
-        DYYYFavLikeHideUnwantedViews(vc.view);
-    } else {
-        cv.hidden = NO;
-        placeholder.hidden = YES;
-        DYYYFavLikeUnhideViews(vc.view);
-    }
+// 判断一段文字是不是要隐藏的提示（上拉加载更多 / 作品不可见）
+static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
+    if (text.length == 0) return NO;
+    return [text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"];
+}
 }
 
 // 重新隐藏：解锁后长按"喜欢"调用
 static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
     dispatch_async(dispatch_get_main_queue(), ^{
-        DYYYFavLikeUpdateLockedUI(vc);
+        DYYYFavLikeHideUnwantedViews(vc.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
         [cv reloadData];
     });
@@ -5093,7 +5053,7 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
             DYYYFavLikeUnlocked = YES;
             // 真实数据一直在 dataManager 里（锁定时拒绝了所有写入），恢复列表显示，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
-                DYYYFavLikeUpdateLockedUI(weakVC);
+                DYYYFavLikeUnhideViews(weakVC.view);
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
                 [cv reloadData];
             });
@@ -12781,6 +12741,54 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 
 %end
 
+// 隐藏喜欢：锁定时，任何 UILabel/UIButton 一旦文字变成"上拉加载更多"/"由于被隐藏或删除"就地隐藏。
+// 比在 viewDidLayoutSubviews 里扫更可靠——文字出现时机不固定，setText 时抓一定能抓到。
+// 未锁定时，如果 label 是被我们藏过的，恢复显示（cell 重用时文字会变回来）。
+%hook UILabel
+- (void)setText:(NSString *)text {
+    %orig;
+    if (DYYYFavLikeIsLocked()) {
+        if (DYYYFavLikeIsUnwantedText(text)) {
+            DYYYFavLikeMarkHidden(self);
+        }
+    } else {
+        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
+            self.hidden = NO;
+            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+}
+- (void)setAttributedText:(NSAttributedString *)attributedText {
+    %orig;
+    if (DYYYFavLikeIsLocked()) {
+        if (DYYYFavLikeIsUnwantedText(attributedText.string)) {
+            DYYYFavLikeMarkHidden(self);
+        }
+    } else {
+        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
+            self.hidden = NO;
+            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+}
+%end
+
+%hook UIButton
+- (void)setTitle:(NSString *)title forState:(UIControlState)state {
+    %orig;
+    if (DYYYFavLikeIsLocked()) {
+        if (DYYYFavLikeIsUnwantedText(title)) {
+            DYYYFavLikeMarkHidden(self);
+        }
+    } else {
+        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
+            self.hidden = NO;
+            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+}
+%end
+
 %hook AWELikeWorkViewController
 
 // 兜底：即使 VC 不走 dataSource getter 取数，项数归零也能隐藏
@@ -12801,19 +12809,19 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         }
         parentVC = parentVC.parentViewController;
     }
-    // 根据锁定状态切换 UI（比如设置里刚打开开关切回来时）
-    DYYYFavLikeUpdateLockedUI(self);
+    // 锁定时确保提示视图被藏掉、列表显示空数据（比如设置里刚打开开关切回来时）
     if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideUnwantedViews(self.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
         [cv reloadData];
     }
 }
 
-// 锁定时每次布局都确保列表保持隐藏、占位在最上层（防止抖音把列表或提示又显示出来）
+// 锁定时每次布局都扫一遍，把新冒出来的提示藏掉（文字出现时机不固定，不依赖布局也能被 setText hook 抓到）
 - (void)viewDidLayoutSubviews {
     %orig;
     if (DYYYFavLikeIsLocked()) {
-        DYYYFavLikeUpdateLockedUI(self);
+        DYYYFavLikeHideUnwantedViews(self.view);
     }
 }
 
