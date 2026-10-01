@@ -4910,16 +4910,16 @@ static void DYYYSyncHiddenFeedAnchorArrangedView(UIView *inner);
 
 %end
 
-// ========== 隐藏喜欢（密码 + 长按"喜欢"二字 2 秒解锁） ==========
+// ========== 隐藏喜欢（密码 + 三击"喜欢"解锁 / 长按"喜欢"重新隐藏） ==========
 // AWELikeWorkViewController 在头文件里只有 @class 前向声明，补一个接口声明
 // 让编译器知道它是 UIViewController 子类（否则发消息/传参都会编译报错）
 @interface AWELikeWorkViewController : UIViewController
 @end
 
 // 开启 DYYYHideFavLike 并设置 DYYYFavLikePassword 后：
-// - 个人主页「喜欢」tab 的列表被隐藏，显示原生"暂无内容"
-// - 长按 tab 栏"喜欢"二字 2 秒才会弹出密码框，其他方式不会出现
-// - 密码正确即时恢复真实数据（无网络请求）；解锁状态只保存在内存，杀进程重进后重新上锁
+// - 个人主页「喜欢」tab 的列表被隐藏，显示原生"暂无内容"（干净空态，不出现"上拉加载更多"/"不可见"）
+// - 锁定时三击 tab 栏"喜欢"二字弹出密码框；密码正确即时恢复（无网络请求）
+// - 解锁后长按"喜欢"二字 1 秒可重新隐藏；解锁状态只保存在内存，杀进程重进后重新上锁
 static BOOL DYYYFavLikeUnlocked = NO;
 
 static BOOL DYYYFavLikeHideEnabled(void) {
@@ -4963,16 +4963,75 @@ static UIView *DYYYFavLikeFindLikeTabLabel(UIView *view) {
     return nil;
 }
 
-// 给"喜欢"tab 标题加 2 秒长按（只加一次）
-static void DYYYFavLikeAttachLongPressToLikeTab(UIView *tabView, UIViewController *target) {
-    static char kDYYYFavLikeTabLongPressKey;
-    if (objc_getAssociatedObject(tabView, &kDYYYFavLikeTabLongPressKey)) return;
-    objc_setAssociatedObject(tabView, &kDYYYFavLikeTabLongPressKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+// 给"喜欢"tab 标题加手势（只加一次）：三击解锁（锁定时弹密码），长按 2 秒重新隐藏（已解锁时）
+static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController *target) {
+    static char kDYYYFavLikeTabGestureKey;
+    if (objc_getAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey)) return;
+    objc_setAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     tabView.userInteractionEnabled = YES;
+    // 三击：锁定时弹出密码框
+    UITapGestureRecognizer *tripleTap = [[UITapGestureRecognizer alloc] initWithTarget:target action:@selector(dyyy_favLikeTripleTap:)];
+    tripleTap.numberOfTapsRequired = 3;
+    tripleTap.cancelsTouchesInView = NO;
+    [tabView addGestureRecognizer:tripleTap];
+    // 长按 2 秒：已解锁时重新隐藏
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:@selector(dyyy_favLikeLongPress:)];
     longPress.minimumPressDuration = 2.0;
     longPress.cancelsTouchesInView = NO;
     [tabView addGestureRecognizer:longPress];
+}
+
+// 在 view 层级里找文字完全等于指定文本的 UILabel
+static UILabel *DYYYFavLikeFindLabelWithText(UIView *view, NSString *text) {
+    if (!view) return nil;
+    if ([view isKindOfClass:[UILabel class]]) {
+        if ([[(UILabel *)view text] isEqualToString:text]) return (UILabel *)view;
+    }
+    for (UIView *sub in view.subviews) {
+        UILabel *found = DYYYFavLikeFindLabelWithText(sub, text);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// 锁定时隐藏"上拉加载更多"和"由于被隐藏或删除"提示，保证显示干净的"暂无内容"空态
+static void DYYYFavLikeHideUnwantedViews(UIView *view) {
+    if (!view) return;
+    if ([view isKindOfClass:[UILabel class]]) {
+        NSString *text = [(UILabel *)view text];
+        if (text.length > 0 && ([text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"])) {
+            view.hidden = YES;
+            return;
+        }
+    }
+    for (UIView *sub in view.subviews) {
+        DYYYFavLikeHideUnwantedViews(sub);
+    }
+}
+
+// 解锁时恢复之前隐藏的提示视图（避免一直隐藏）
+static void DYYYFavLikeUnhideViews(UIView *view) {
+    if (!view) return;
+    if ([view isKindOfClass:[UILabel class]]) {
+        NSString *text = [(UILabel *)view text];
+        if (text.length > 0 && ([text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"])) {
+            view.hidden = NO;
+        }
+    }
+    for (UIView *sub in view.subviews) {
+        DYYYFavLikeUnhideViews(sub);
+    }
+}
+
+// 重新隐藏：解锁后长按"喜欢"调用
+static void DYYYFavLikeLockNow(UIViewController *vc) {
+    DYYYFavLikeUnlocked = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        DYYYFavLikeHideUnwantedViews(vc.view);
+        UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+        [cv reloadData];
+    });
+    [DYYYUtils showToast:@"已隐藏"];
 }
 
 static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
@@ -4992,8 +5051,9 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
         NSString *password = DYYYFavLikePassword();
         if (password && [input isEqualToString:password]) {
             DYYYFavLikeUnlocked = YES;
-            // 真实数据一直在 dataManager 里，直接重载列表即现，无网络请求
+            // 真实数据一直在 dataManager 里（锁定时拒绝了所有写入），直接重载即现，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
+                DYYYFavLikeUnhideViews(weakVC.view);
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
                 [cv reloadData];
             });
@@ -12673,6 +12733,12 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     return %orig;
 }
 
+// 锁定时拒绝一切写入：防止某处把 getter 读到的空数组又写回去，导致真实数据丢失、解锁后无法恢复
+- (void)setDataSource:(id)dataSource {
+    if (DYYYFavLikeIsLocked()) return;
+    %orig;
+}
+
 %end
 
 %hook AWELikeWorkViewController
@@ -12685,28 +12751,55 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    // 沿父级链往上找"喜欢"tab 标题，给它加 2 秒长按：锁定时长按"喜欢"二字弹密码框
+    // 沿父级链往上找"喜欢"tab 标题，加手势：锁定时三击弹密码框，已解锁时长按 1 秒重新隐藏
     UIViewController *parentVC = self.parentViewController;
     while (parentVC) {
         UIView *tabLabel = DYYYFavLikeFindLikeTabLabel(parentVC.view);
         if (tabLabel) {
-            DYYYFavLikeAttachLongPressToLikeTab(tabLabel, self);
+            DYYYFavLikeAttachGesturesToLikeTab(tabLabel, self);
             break;
         }
         parentVC = parentVC.parentViewController;
     }
     // 锁定时重载一次，把已加载的内容藏起来（比如设置里刚打开开关切回来时）
     if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideUnwantedViews(self.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
         [cv reloadData];
     }
 }
 
+// 锁定时每次布局都扫一遍，把后出现的"上拉加载更多"/"不可见"提示藏掉，只留干净的"暂无内容"
+- (void)viewDidLayoutSubviews {
+    %orig;
+    if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideUnwantedViews(self.view);
+        // 确保原生"暂无内容"可见（如果存在）
+        UILabel *emptyLabel = DYYYFavLikeFindLabelWithText(self.view, @"暂无内容");
+        if (emptyLabel) {
+            UIView *p = emptyLabel;
+            while (p && p != self.view) {
+                p.hidden = NO;
+                p = p.superview;
+            }
+        }
+    }
+}
+
 %new
-- (void)dyyy_favLikeLongPress:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state != UIGestureRecognizerStateBegan) return;
+// 三击"喜欢"：锁定时弹出密码框
+- (void)dyyy_favLikeTripleTap:(UITapGestureRecognizer *)gesture {
     if (!DYYYFavLikeIsLocked()) return;
     DYYYFavLikeShowPasswordAlert(self);
+}
+
+%new
+// 长按"喜欢" 2 秒：已解锁时重新隐藏
+- (void)dyyy_favLikeLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    if (DYYYFavLikeHideEnabled() && DYYYFavLikePassword() != nil && DYYYFavLikeUnlocked) {
+        DYYYFavLikeLockNow(self);
+    }
 }
 
 %end
