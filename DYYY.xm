@@ -4975,31 +4975,6 @@ static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController
     [tabView addGestureRecognizer:longPress];
 }
 
-// 锁定时用 timer 每 0.5 秒扫一遍，把"上拉加载更多"/"不可见"提示藏掉。
-// 比 viewDidLayoutSubviews 更可靠——提示出现时机不固定，不一定触发布局。
-static NSTimer *DYYYFavLikeScanTimer = nil;
-static __weak UIViewController *DYYYFavLikeScanVC = nil;
-
-static void DYYYFavLikeStopScanTimer(void) {
-    [DYYYFavLikeScanTimer invalidate];
-    DYYYFavLikeScanTimer = nil;
-    DYYYFavLikeScanVC = nil;
-}
-
-static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
-    DYYYFavLikeStopScanTimer();
-    DYYYFavLikeScanVC = vc;
-    DYYYFavLikeScanTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(__unused NSTimer *t) {
-        UIViewController *scanVC = DYYYFavLikeScanVC;
-        if (!scanVC || !DYYYFavLikeIsLocked()) {
-            DYYYFavLikeStopScanTimer();
-            return;
-        }
-        DYYYFavLikeHideUnwantedViews(scanVC.view);
-    }];
-}
-
-// 锁定时隐藏"上拉加载更多"/"由于被隐藏或删除"提示（UILabel 文字或 UIButton 标题），打上标记以便解锁恢复
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
     if (!view) return;
     if ([view isKindOfClass:[UILabel class]]) {
@@ -5045,6 +5020,31 @@ static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
     if (text.length == 0) return NO;
     return [text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"];
 }
+
+// 锁定时用 timer 每 0.5 秒扫一遍，把"上拉加载更多"/"不可见"提示藏掉。
+// 比 viewDidLayoutSubviews 更可靠——提示出现时机不固定，不一定触发布局。
+static NSTimer *DYYYFavLikeScanTimer = nil;
+static __weak UIViewController *DYYYFavLikeScanVC = nil;
+
+static void DYYYFavLikeStopScanTimer(void) {
+    [DYYYFavLikeScanTimer invalidate];
+    DYYYFavLikeScanTimer = nil;
+    DYYYFavLikeScanVC = nil;
+}
+
+static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
+    DYYYFavLikeStopScanTimer();
+    DYYYFavLikeScanVC = vc;
+    DYYYFavLikeScanTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(__unused NSTimer *t) {
+        UIViewController *scanVC = DYYYFavLikeScanVC;
+        if (!scanVC || !DYYYFavLikeIsLocked()) {
+            DYYYFavLikeStopScanTimer();
+            return;
+        }
+        DYYYFavLikeHideUnwantedViews(scanVC.view);
+    }];
+}
+
 
 // 重新隐藏：解锁后长按"喜欢"调用
 static void DYYYFavLikeLockNow(UIViewController *vc) {
