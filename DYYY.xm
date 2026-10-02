@@ -4971,9 +4971,12 @@ static UIView *DYYYFavLikeFindLikeTabLabel(UIView *view) {
 }
 
 // 给"喜欢"tab 标题加双击（只加一次）：锁定时弹密码框，已解锁时重新隐藏
+static char kDYYYFavLikeIsLikeVCKey;
+
 static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController *target) {
     static char kDYYYFavLikeTabGestureKey;
-    // 记录喜欢 tab 对应的 VC 实例，用于新 VC 的按实例隐藏
+    // 在 VC 身上打标记：我是喜欢 tab 的 VC（比全局弱引用可靠，VC 重建也不丢）
+    objc_setAssociatedObject(target, &kDYYYFavLikeIsLikeVCKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     DYYYFavLikeTargetVC = target;
     if (objc_getAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey)) return;
     objc_setAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -4982,6 +4985,11 @@ static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController
     doubleTap.numberOfTapsRequired = 2;
     doubleTap.cancelsTouchesInView = NO;
     [tabView addGestureRecognizer:doubleTap];
+}
+
+// 判断 VC 是否为喜欢 tab 的 VC（身上有标记）
+static BOOL DYYYFavLikeIsLikeVC(UIViewController *vc) {
+    return objc_getAssociatedObject(vc, &kDYYYFavLikeIsLikeVCKey) != nil;
 }
 
 static char kDYYYFavLikeHiddenMarkKey;
@@ -5013,54 +5021,16 @@ static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
     return NO;
 }
 
-// 新热更新 VC 遮罩用的 key
-static char kDYYYFavLikeNewVCOverlayKey;
-
-// 新热更新 VC：锁定时在列表区域盖一个"暂无内容"遮罩（即时生效，不依赖 cell 机制）；
-// 解锁时移除遮罩。遮罩只盖住 collectionView 的区域，不影响头部和 tab 栏
-static void DYYYFavLikeShowNewVCOverlay(UIViewController *vc) {
+// 新热更新 VC：把列表里所有 cell 设为隐藏/显示（简单直接，不打标记）
+static void DYYYFavLikeSetNewVCCellsHidden(UIViewController *vc, BOOL hidden) {
     if (!vc) return;
     UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-    if (!cv || !cv.superview) return;
-    UIView *old = objc_getAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey);
-    if (old) {
-        old.hidden = NO;
-        [old.superview bringSubviewToFront:old];
-        // 同步 frame（防布局变化）
-        UICollectionView *cv2 = DYYYFavLikeFindCollectionView(vc.view);
-        if (cv2) old.frame = cv2.frame;
-        return;
+    if (!cv) return;
+    for (UIView *sub in cv.subviews) {
+        if ([sub isKindOfClass:[UICollectionViewCell class]]) sub.hidden = hidden;
     }
-
-    UIView *overlay = [[UIView alloc] initWithFrame:cv.frame];
-    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    // 背景跟列表保持一致，避免突兀
-    overlay.backgroundColor = cv.backgroundColor ?: vc.view.backgroundColor ?: [UIColor systemBackgroundColor];
-
-    UILabel *label = [[UILabel alloc] init];
-    label.text = @"暂无内容";
-    label.font = [UIFont boldSystemFontOfSize:20];
-    label.textColor = [UIColor labelColor];
-    label.textAlignment = NSTextAlignmentCenter;
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    [overlay addSubview:label];
-    [NSLayoutConstraint activateConstraints:@[
-        [label.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
-        [label.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor],
-    ]];
-
-    [cv.superview addSubview:overlay];
-    [cv.superview bringSubviewToFront:overlay];
-    objc_setAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-// 移除新热更新 VC 的遮罩，恢复列表显示
-static void DYYYFavLikeHideNewVCOverlay(UIViewController *vc) {
-    if (!vc) return;
-    UIView *overlay = objc_getAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey);
-    if (overlay) {
-        [overlay removeFromSuperview];
-        objc_setAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    for (UICollectionViewCell *cell in cv.visibleCells) {
+        cell.hidden = hidden;
     }
 }
 
@@ -5134,13 +5104,13 @@ static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
 
 
 // 重新隐藏：解锁后双击"喜欢"调用（手势回调已在主线程，直接执行不延迟）
+// vc 就是手势绑定的喜欢页 VC，直接盖遮罩，不再做实例检查
 static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
     DYYYFavLikeHideUnwantedViews(vc.view);
-    // 新热更新的 VC 用组件化架构，藏 cell（仅限喜欢 tab 实例）
     Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
-    if (newVCClass && [vc isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == vc) {
-        DYYYFavLikeShowNewVCOverlay(vc);
+    if (newVCClass && [vc isKindOfClass:newVCClass]) {
+        DYYYFavLikeSetNewVCCellsHidden(vc, YES);
     } else {
         UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
         [cv reloadData];
@@ -5170,10 +5140,10 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
             // 真实数据一直在 dataManager 里，恢复列表显示，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
                 DYYYFavLikeUnhideViews(weakVC.view);
-                // 新热更新的 VC：恢复被藏掉的 cell（仅限喜欢 tab 实例）
+                // 新热更新的 VC：恢复所有 cell 显示
                 Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
-                if (newVCClass && [weakVC isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == weakVC) {
-                    DYYYFavLikeHideNewVCOverlay(weakVC);
+                if (newVCClass && [weakVC isKindOfClass:newVCClass]) {
+                    DYYYFavLikeSetNewVCCellsHidden(weakVC, NO);
                 }
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
                 [cv reloadData];
@@ -12977,24 +12947,25 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         }
         parentVC = parentVC.parentViewController;
     }
-    // 只有当前实例是喜欢 tab 的 VC 时才处理
-    if (DYYYFavLikeTargetVC == self && DYYYFavLikeIsLocked()) {
-        DYYYFavLikeShowNewVCOverlay(self);
-        DYYYFavLikeHideUnwantedViews(self.view);
-        DYYYFavLikeStartScanTimer(self);
+    // 喜欢 tab 的 VC：锁定时藏 cell，未锁定时恢复
+    if (DYYYFavLikeIsLikeVC(self)) {
+        if (DYYYFavLikeIsLocked()) {
+            DYYYFavLikeSetNewVCCellsHidden(self, YES);
+            DYYYFavLikeHideUnwantedViews(self.view);
+            DYYYFavLikeStartScanTimer(self);
+        } else {
+            DYYYFavLikeSetNewVCCellsHidden(self, NO);
+        }
     }
 }
 
-// 锁定时确保遮罩在最上层（防组件化架构重建视图盖住遮罩），仅限喜欢 tab 实例；
-// 解锁后若遮罩还在，在此移除
+// 每次布局时同步 cell 显示状态：锁定时藏，未锁定时恢复（防 cell 重用导致状态错乱）
 - (void)viewDidLayoutSubviews {
     %orig;
-    if (DYYYFavLikeTargetVC == self) {
+    if (DYYYFavLikeIsLikeVC(self)) {
+        DYYYFavLikeSetNewVCCellsHidden(self, DYYYFavLikeIsLocked());
         if (DYYYFavLikeIsLocked()) {
-            DYYYFavLikeShowNewVCOverlay(self);
             DYYYFavLikeHideUnwantedViews(self.view);
-        } else {
-            DYYYFavLikeHideNewVCOverlay(self);
         }
     }
 }
@@ -13009,6 +12980,26 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
 }
 
+%end
+
+// 新热更新的 cell 类：cell 一被加到视图层级就检查，锁定时直接隐藏（无延迟）；
+// 解锁时恢复显示。沿响应链找所属 VC，只处理喜欢 tab 的
+%hook AWEUserWorkCollectionViewComponentCell
+- (void)didMoveToSuperview {
+    %orig;
+    if (!self.superview) return;
+    UIResponder *r = self;
+    while (r) {
+        if ([r isKindOfClass:[UIViewController class]]) {
+            UIViewController *vc = (UIViewController *)r;
+            if (DYYYFavLikeIsLikeVC(vc)) {
+                ((UIView *)self).hidden = DYYYFavLikeIsLocked();
+            }
+            break;
+        }
+        r = [r nextResponder];
+    }
+}
 %end
 
 // 隐藏喜欢：锁定时，直接藏掉喜欢页的上拉 footer（AWEFeedRefreshFooter），
