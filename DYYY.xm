@@ -4991,12 +4991,14 @@ static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
 // 判断一个 view 是否在喜欢 tab（AWELikeWorkViewController）的层级里，
 // 避免锁定时误伤其他 tab（比如作品页）的同名 footer
 static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
-    // 用 NSClassFromString 做运行时查找，避免直接引用前向声明的类导致链接错误
-    Class likeVCClass = NSClassFromString(@"AWELikeWorkViewController");
-    if (!likeVCClass) return NO;
+    // 用 NSClassFromString 做运行时查找，避免直接引用前向声明的类导致链接错误；
+    // 新旧热更新的 VC 类名不同（AWELikeWorkViewController / AWEDCFeedListViewController），都要识别
+    Class likeVCClassOld = NSClassFromString(@"AWELikeWorkViewController");
+    Class likeVCClassNew = NSClassFromString(@"AWEDCFeedListViewController");
     UIResponder *r = view;
     while (r) {
-        if ([r isKindOfClass:likeVCClass]) return YES;
+        if (likeVCClassOld && [r isKindOfClass:likeVCClassOld]) return YES;
+        if (likeVCClassNew && [r isKindOfClass:likeVCClassNew]) return YES;
         r = [r nextResponder];
     }
     return NO;
@@ -12815,10 +12817,10 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 %end
 
 // ========== 隐藏喜欢（精确类名版） ==========
-// 真机 FLEX 确认：喜欢 tab 的 VC 是 AWELikeWorkViewController，数据类是 AWEUserLikesDataManager
-// （AWEListDataController 子类）；VC 自己是 collectionView 的 dataSource。
-// 锁定时 dataSource 返回空数组、列表项数归零，原生"暂无内容"占位正常显示；
-// 真实数据一直在 dataManager 里，解锁后直接 reloadData 即现，无网络请求。
+// 喜欢 tab 的数据类：旧热更新是 AWEUserLikesDataManager（AWEListDataController 子类）。
+// 新热更新的 VC 换成了 AWEDCFeedListViewController，数据类名未知，但 VC 层的
+// numberOfItemsInSection 归零已能隐藏内容，这里作为兜底保留旧类的 hook。
+// 锁定时 dataSource 返回空数组；真实数据一直在 dataManager 里，解锁后直接 reloadData 即现，无网络请求。
 %hook AWEUserLikesDataManager
 
 - (id)dataSource {
@@ -12826,9 +12828,13 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     return %orig;
 }
 
-// 锁定时拒绝一切写入：防止某处把 getter 读到的空数组又写回去，导致真实数据丢失、解锁后无法恢复
+// 锁定时只拒绝空写入：防止某处把 getter 读到的空数组又写回去，导致真实数据丢失、解锁后无法恢复；
+// 非空写入放行，保证锁住期间新点的喜欢能更新进来，解锁后 reloadData 即最新数据
 - (void)setDataSource:(id)dataSource {
-    if (DYYYFavLikeIsLocked()) return;
+    if (DYYYFavLikeIsLocked()) {
+        if (!dataSource) return;
+        if ([dataSource respondsToSelector:@selector(count)] && [(NSArray *)dataSource count] == 0) return;
+    }
     %orig;
 }
 
@@ -12864,6 +12870,57 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 }
 
 // 锁定时每次布局都扫一遍，把新冒出来的提示藏掉（文字出现时机不固定，不依赖布局也能被 setText hook 抓到）
+- (void)viewDidLayoutSubviews {
+    %orig;
+    if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideUnwantedViews(self.view);
+    }
+}
+
+%new
+// 双击"喜欢"：锁定时弹密码框，已解锁时重新隐藏
+- (void)dyyy_favLikeDoubleTap:(UITapGestureRecognizer *)gesture {
+    if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeShowPasswordAlert(self);
+    } else if (DYYYFavLikeHideEnabled() && DYYYFavLikePassword() != nil && DYYYFavLikeUnlocked) {
+        DYYYFavLikeLockNow(self);
+    }
+}
+
+%end
+
+// 新热更新（热更新开启时）喜欢 tab 的 VC 是 AWEDCFeedListViewController，
+// 加一套和 AWELikeWorkViewController 相同的 hook，保证新旧热更新都兼容
+%hook AWEDCFeedListViewController
+
+// 锁定时项数归零，隐藏列表内容
+- (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
+    if (DYYYFavLikeIsLocked()) return 0;
+    return %orig;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    // 沿父级链往上找"喜欢"tab 标题，加双击手势：锁定时弹密码框，已解锁时重新隐藏
+    UIViewController *parentVC = self.parentViewController;
+    while (parentVC) {
+        UIView *tabLabel = DYYYFavLikeFindLikeTabLabel(parentVC.view);
+        if (tabLabel) {
+            DYYYFavLikeAttachGesturesToLikeTab(tabLabel, self);
+            break;
+        }
+        parentVC = parentVC.parentViewController;
+    }
+    // 锁定时确保提示视图被藏掉、列表显示空数据
+    if (DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideUnwantedViews(self.view);
+        UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
+        [cv reloadData];
+        DYYYFavLikeStartScanTimer(self);
+    }
+}
+
+// 锁定时每次布局都扫一遍，把新冒出来的提示藏掉
 - (void)viewDidLayoutSubviews {
     %orig;
     if (DYYYFavLikeIsLocked()) {
