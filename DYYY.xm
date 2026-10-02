@@ -5013,49 +5013,54 @@ static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
     return NO;
 }
 
-// 新热更新 VC 锁定时藏 cell 用的标记 key（文件级共享，hide/unhide 必须用同一个）
-static char kDYYYFavLikeCellHiddenKey;
+// 新热更新 VC 遮罩用的 key
+static char kDYYYFavLikeNewVCOverlayKey;
 
-// 新热更新 VC：锁定时藏掉 collectionView 里所有 cell（不藏 collectionView 本体，避免全屏黑）
-// 解锁时把藏掉的 cell 恢复显示
-static void DYYYFavLikeHideNewVCCells(UIViewController *vc) {
+// 新热更新 VC：锁定时在列表区域盖一个"暂无内容"遮罩（即时生效，不依赖 cell 机制）；
+// 解锁时移除遮罩。遮罩只盖住 collectionView 的区域，不影响头部和 tab 栏
+static void DYYYFavLikeShowNewVCOverlay(UIViewController *vc) {
     if (!vc) return;
     UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-    if (!cv) return;
-    for (UICollectionViewCell *cell in cv.visibleCells) {
-        if (!objc_getAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey)) {
-            objc_setAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            cell.hidden = YES;
-        }
+    if (!cv || !cv.superview) return;
+    UIView *old = objc_getAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey);
+    if (old) {
+        old.hidden = NO;
+        [old.superview bringSubviewToFront:old];
+        // 同步 frame（防布局变化）
+        UICollectionView *cv2 = DYYYFavLikeFindCollectionView(vc.view);
+        if (cv2) old.frame = cv2.frame;
+        return;
     }
-    // 组件化架构的 cell 可能不在 visibleCells 里，把 collectionView 下所有 cell 子视图也藏掉
-    for (UIView *sub in cv.subviews) {
-        if ([sub isKindOfClass:[UICollectionViewCell class]] && !sub.hidden) {
-            if (!objc_getAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey)) {
-                objc_setAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                sub.hidden = YES;
-            }
-        }
-    }
+
+    UIView *overlay = [[UIView alloc] initWithFrame:cv.frame];
+    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    // 背景跟列表保持一致，避免突兀
+    overlay.backgroundColor = cv.backgroundColor ?: vc.view.backgroundColor ?: [UIColor systemBackgroundColor];
+
+    UILabel *label = [[UILabel alloc] init];
+    label.text = @"暂无内容";
+    label.font = [UIFont boldSystemFontOfSize:20];
+    label.textColor = [UIColor labelColor];
+    label.textAlignment = NSTextAlignmentCenter;
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [overlay addSubview:label];
+    [NSLayoutConstraint activateConstraints:@[
+        [label.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+        [label.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor],
+    ]];
+
+    [cv.superview addSubview:overlay];
+    [cv.superview bringSubviewToFront:overlay];
+    objc_setAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-// 解锁时恢复被藏掉的 cell
-static void DYYYFavLikeUnhideNewVCCells(UIViewController *vc) {
+// 移除新热更新 VC 的遮罩，恢复列表显示
+static void DYYYFavLikeHideNewVCOverlay(UIViewController *vc) {
     if (!vc) return;
-    UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-    if (!cv) return;
-    // 恢复所有打过标记的 cell，并清掉标记
-    for (UIView *sub in cv.subviews) {
-        if ([sub isKindOfClass:[UICollectionViewCell class]] && objc_getAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey)) {
-            objc_setAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            sub.hidden = NO;
-        }
-    }
-    for (UICollectionViewCell *cell in cv.visibleCells) {
-        if (objc_getAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey)) {
-            objc_setAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        cell.hidden = NO;
+    UIView *overlay = objc_getAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey);
+    if (overlay) {
+        [overlay removeFromSuperview];
+        objc_setAssociatedObject(vc, &kDYYYFavLikeNewVCOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 }
 
@@ -5135,9 +5140,7 @@ static void DYYYFavLikeLockNow(UIViewController *vc) {
     // 新热更新的 VC 用组件化架构，藏 cell（仅限喜欢 tab 实例）
     Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
     if (newVCClass && [vc isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == vc) {
-        DYYYFavLikeHideNewVCCells(vc);
-        [vc.view setNeedsLayout];
-        [vc.view layoutIfNeeded];
+        DYYYFavLikeShowNewVCOverlay(vc);
     } else {
         UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
         [cv reloadData];
@@ -5170,7 +5173,7 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
                 // 新热更新的 VC：恢复被藏掉的 cell（仅限喜欢 tab 实例）
                 Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
                 if (newVCClass && [weakVC isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == weakVC) {
-                    DYYYFavLikeUnhideNewVCCells(weakVC);
+                    DYYYFavLikeHideNewVCOverlay(weakVC);
                 }
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
                 [cv reloadData];
@@ -12976,22 +12979,22 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
     // 只有当前实例是喜欢 tab 的 VC 时才处理
     if (DYYYFavLikeTargetVC == self && DYYYFavLikeIsLocked()) {
-        DYYYFavLikeHideNewVCCells(self);
+        DYYYFavLikeShowNewVCOverlay(self);
         DYYYFavLikeHideUnwantedViews(self.view);
         DYYYFavLikeStartScanTimer(self);
     }
 }
 
-// 锁定时每次布局都确保 cell 保持隐藏（防组件化架构重建视图），仅限喜欢 tab 实例；
-// 解锁后若还有残留被藏的 cell，在此统一恢复
+// 锁定时确保遮罩在最上层（防组件化架构重建视图盖住遮罩），仅限喜欢 tab 实例；
+// 解锁后若遮罩还在，在此移除
 - (void)viewDidLayoutSubviews {
     %orig;
     if (DYYYFavLikeTargetVC == self) {
         if (DYYYFavLikeIsLocked()) {
-            DYYYFavLikeHideNewVCCells(self);
+            DYYYFavLikeShowNewVCOverlay(self);
             DYYYFavLikeHideUnwantedViews(self.view);
         } else {
-            DYYYFavLikeUnhideNewVCCells(self);
+            DYYYFavLikeHideNewVCOverlay(self);
         }
     }
 }
