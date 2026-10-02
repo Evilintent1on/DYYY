@@ -4996,6 +4996,12 @@ static void DYYYFavLikeHideUnwantedViews(UIView *view) {
             DYYYFavLikeMarkHidden(view);
             return;
         }
+    } else if ([view isKindOfClass:[UITextView class]]) {
+        UITextView *tv = (UITextView *)view;
+        if (DYYYFavLikeIsUnwantedText(tv.text) || DYYYFavLikeIsUnwantedText(tv.attributedText.string)) {
+            DYYYFavLikeMarkHidden(view);
+            return;
+        }
     } else if ([view isKindOfClass:[UIButton class]]) {
         UIButton *btn = (UIButton *)view;
         if (DYYYFavLikeIsUnwantedText([btn titleForState:UIControlStateNormal])) {
@@ -5035,14 +5041,19 @@ static void DYYYFavLikeStopScanTimer(void) {
 static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
     DYYYFavLikeStopScanTimer();
     DYYYFavLikeScanVC = vc;
-    DYYYFavLikeScanTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(__unused NSTimer *t) {
-        UIViewController *scanVC = DYYYFavLikeScanVC;
-        if (!scanVC || !DYYYFavLikeIsLocked()) {
+    DYYYFavLikeScanTimer = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(__unused NSTimer *t) {
+        if (!DYYYFavLikeIsLocked()) {
             DYYYFavLikeStopScanTimer();
             return;
         }
-        DYYYFavLikeHideUnwantedViews(scanVC.view);
+        // 扫整个 keyWindow，比只扫 VC.view 更可靠（提示可能不在 VC.view 层级里）
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        if (window) DYYYFavLikeHideUnwantedViews(window);
+        UIViewController *scanVC = DYYYFavLikeScanVC;
+        if (scanVC && scanVC.view.window != window) DYYYFavLikeHideUnwantedViews(scanVC.view);
     }];
+    // 用 CommonModes，滚动时也能触发
+    [[NSRunLoop mainRunLoop] addTimer:DYYYFavLikeScanTimer forMode:NSRunLoopCommonModes];
 }
 
 
