@@ -5042,7 +5042,8 @@ static void DYYYFavLikeSetNewVCCellsHidden(UIViewController *vc, BOOL hidden) {
     DYYYFavLikeSetCellHiddenRecursive(cv, hidden);
 }
 
-// IGListAdapter 前向声明（FLEX 确认新 VC 用 IGListKit）
+// IGListAdapter 前向声明（FLEX 确认新 VC 用 IGListKit），只用于方法签名，
+// 不直接引用 [IGListAdapter class]（会导致链接错误），用 NSClassFromString 运行时查找
 @interface IGListAdapter : NSObject
 - (void)performUpdatesAnimated:(BOOL)animated completion:(void (^)(BOOL finished))completion;
 @end
@@ -5051,10 +5052,13 @@ static void DYYYFavLikeSetNewVCCellsHidden(UIViewController *vc, BOOL hidden) {
 static void DYYYFavLikeRefreshNewVC(UIViewController *vc) {
     if (!vc) return;
     // 尝试通过 KVC 拿到 IGListAdapter 并触发更新
-    IGListAdapter *adapter = nil;
+    id adapter = nil;
     @try { adapter = [vc valueForKey:@"adapter"]; } @catch (__unused NSException *e) {}
-    if ([adapter isKindOfClass:[IGListAdapter class]]) {
-        [adapter performUpdatesAnimated:YES completion:nil];
+    Class adapterClass = NSClassFromString(@"IGListAdapter");
+    if (adapterClass && [adapter isKindOfClass:adapterClass] &&
+        [adapter respondsToSelector:@selector(performUpdatesAnimated:completion:)]) {
+        IGListAdapter *typedAdapter = (IGListAdapter *)adapter;
+        [typedAdapter performUpdatesAnimated:YES completion:nil];
         return;
     }
     // 兜底：直接 reloadData
