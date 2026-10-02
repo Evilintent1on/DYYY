@@ -4963,16 +4963,16 @@ static UIView *DYYYFavLikeFindLikeTabLabel(UIView *view) {
     return nil;
 }
 
-// 给"喜欢"tab 标题加长按 2 秒（只加一次）：锁定时弹密码框，已解锁时重新隐藏
+// 给"喜欢"tab 标题加双击（只加一次）：锁定时弹密码框，已解锁时重新隐藏
 static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController *target) {
     static char kDYYYFavLikeTabGestureKey;
     if (objc_getAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey)) return;
     objc_setAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     tabView.userInteractionEnabled = YES;
-    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:@selector(dyyy_favLikeLongPress:)];
-    longPress.minimumPressDuration = 2.0;
-    longPress.cancelsTouchesInView = NO;
-    [tabView addGestureRecognizer:longPress];
+    UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:target action:@selector(dyyy_favLikeDoubleTap:)];
+    doubleTap.numberOfTapsRequired = 2;
+    doubleTap.cancelsTouchesInView = NO;
+    [tabView addGestureRecognizer:doubleTap];
 }
 
 static char kDYYYFavLikeHiddenMarkKey;
@@ -4986,6 +4986,17 @@ static void DYYYFavLikeMarkHidden(UIView *view) {
 static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
     if (text.length == 0) return NO;
     return [text containsString:@"上拉加载更多"] || [text containsString:@"由于被隐藏或删除"];
+}
+
+// 判断一个 view 是否在喜欢 tab（AWELikeWorkViewController）的层级里，
+// 避免锁定时误伤其他 tab（比如作品页）的同名 footer
+static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
+    UIResponder *r = view;
+    while (r) {
+        if ([r isKindOfClass:[AWELikeWorkViewController class]]) return YES;
+        r = [r nextResponder];
+    }
+    return NO;
 }
 
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
@@ -12144,6 +12155,10 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     if (DYYYGetBool(@"DYYYHidePostView")) {
         return;
     }
+    // 隐藏喜欢：锁定时，喜欢页的空状态不显示文字（"由于被隐藏或删除…"）
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+        return;
+    }
     %orig(title);
 }
 
@@ -12151,7 +12166,19 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     if (DYYYGetBool(@"DYYYHidePostView")) {
         return;
     }
+    // 隐藏喜欢：锁定时，喜欢页的空状态不显示文字
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+        return;
+    }
     %orig(detail);
+}
+
+// 兜底：锁定时直接藏掉喜欢页的空状态视图
+- (void)layoutSubviews {
+    %orig;
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+        self.hidden = YES;
+    }
 }
 %end
 
@@ -12842,9 +12869,8 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 }
 
 %new
-// 长按"喜欢" 2 秒：锁定时弹密码框，已解锁时重新隐藏
-- (void)dyyy_favLikeLongPress:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state != UIGestureRecognizerStateBegan) return;
+// 双击"喜欢"：锁定时弹密码框，已解锁时重新隐藏
+- (void)dyyy_favLikeDoubleTap:(UITapGestureRecognizer *)gesture {
     if (DYYYFavLikeIsLocked()) {
         DYYYFavLikeShowPasswordAlert(self);
     } else if (DYYYFavLikeHideEnabled() && DYYYFavLikePassword() != nil && DYYYFavLikeUnlocked) {
@@ -12852,6 +12878,23 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
 }
 
+%end
+
+// 隐藏喜欢：锁定时，直接藏掉喜欢页的上拉 footer（AWEFeedRefreshFooter），
+// 参考 DYYYHidePostView 的做法——hook 具体类，不扫文字
+%hook AWEFeedRefreshFooter
+- (void)layoutSubviews {
+    %orig;
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+        self.hidden = YES;
+    }
+}
+- (void)didMoveToWindow {
+    %orig;
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+        self.hidden = YES;
+    }
+}
 %end
 
 %hook AWEMixVideoListDataController

@@ -5049,7 +5049,7 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
           @{
               @"identifier" : @"DYYYHideFavLike",
               @"title" : @"隐藏喜欢",
-              @"subTitle" : @"开启并设置密码后，喜欢列表显示为空，长按“喜欢”二字 2 秒输入密码查看或重新隐藏",
+              @"subTitle" : @"开启并设置密码后，喜欢列表显示为空，双击“喜欢”二字输入密码查看或重新隐藏",
               @"detail" : @"",
               @"cellType" : @37,
               @"imageName" : @"ic_eyeslash_outlined_16"
