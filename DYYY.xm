@@ -5077,13 +5077,21 @@ static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
 }
 
 
-// 重新隐藏：解锁后长按"喜欢"调用
+// 重新隐藏：解锁后双击"喜欢"调用
 static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
     dispatch_async(dispatch_get_main_queue(), ^{
         DYYYFavLikeHideUnwantedViews(vc.view);
         UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-        [cv reloadData];
+        if (cv) {
+            // 新热更新的 VC 用组件化架构，直接藏整个列表
+            Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
+            if (newVCClass && [vc isKindOfClass:newVCClass]) {
+                cv.hidden = YES;
+            } else {
+                [cv reloadData];
+            }
+        }
         DYYYFavLikeStartScanTimer(vc);
     });
     [DYYYUtils showToast:@"已隐藏"];
@@ -5107,10 +5115,11 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
         if (password && [input isEqualToString:password]) {
             DYYYFavLikeUnlocked = YES;
             DYYYFavLikeStopScanTimer();
-            // 真实数据一直在 dataManager 里（锁定时拒绝了所有写入），恢复列表显示，无网络请求
+            // 真实数据一直在 dataManager 里，恢复列表显示，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
                 DYYYFavLikeUnhideViews(weakVC.view);
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
+                if (cv) cv.hidden = NO;  // 新热更新的 VC 锁定时藏了整个 collectionView，解锁时恢复
                 [cv reloadData];
             });
             [DYYYUtils showToast:@"已解锁"];
@@ -12897,12 +12906,8 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 // 加一套和 AWELikeWorkViewController 相同的 hook，保证新旧热更新都兼容
 %hook AWEDCFeedListViewController
 
-// 锁定时项数归零，隐藏列表内容
-- (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
-    if (DYYYFavLikeIsLocked()) return 0;
-    return %orig;
-}
-
+// 新热更新用组件化架构（AWEUserWorkCollectionViewComponentCell），不走标准 numberOfItemsInSection，
+// 锁定时直接藏掉整个 collectionView（内容/footer/空状态一起消失），解锁时恢复
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     // 沿父级链往上找"喜欢"tab 标题，加双击手势：锁定时弹密码框，已解锁时重新隐藏
@@ -12915,18 +12920,23 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         }
         parentVC = parentVC.parentViewController;
     }
-    // 锁定时确保提示视图被藏掉、列表显示空数据
+    // 同步 collectionView 显示状态
+    UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
+    if (cv) cv.hidden = DYYYFavLikeIsLocked();
     if (DYYYFavLikeIsLocked()) {
         DYYYFavLikeHideUnwantedViews(self.view);
-        UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
-        [cv reloadData];
         DYYYFavLikeStartScanTimer(self);
     }
 }
 
-// 锁定时每次布局都扫一遍，把新冒出来的提示藏掉
+// 锁定时每次布局都确保 collectionView 保持隐藏（防组件化架构重建视图）
 - (void)viewDidLayoutSubviews {
     %orig;
+    UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
+    if (cv) {
+        BOOL shouldHide = DYYYFavLikeIsLocked();
+        if (cv.hidden != shouldHide) cv.hidden = shouldHide;
+    }
     if (DYYYFavLikeIsLocked()) {
         DYYYFavLikeHideUnwantedViews(self.view);
     }
