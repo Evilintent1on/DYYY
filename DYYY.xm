@@ -4928,6 +4928,8 @@ static BOOL DYYYFavLikeUnlocked = NO;
 // 记录当前"喜欢"tab 对应的 VC 实例（新热更新下作品/喜欢可能共用 AWEDCFeedListViewController 类，
 // 必须按实例区分，否则锁喜欢时会把作品 tab 的列表也藏掉）
 static __weak UIViewController *DYYYFavLikeTargetVC = nil;
+// 强引用当前可见的喜欢页 VC（viewDidAppear 时更新），用于锁定/解锁时立即操作可见实例
+static UIViewController *DYYYFavLikeCurrentVC = nil;
 
 static BOOL DYYYFavLikeHideEnabled(void) {
     return DYYYGetBoolCached(@"DYYYHideFavLike");
@@ -5021,17 +5023,38 @@ static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
     return NO;
 }
 
-// 新热更新 VC：把列表里所有 cell 设为隐藏/显示（简单直接，不打标记）
+// 新热更新 VC：把列表里所有 cell 设为隐藏/显示（递归查找，简单直接）
+static void DYYYFavLikeSetCellHiddenRecursive(UIView *view, BOOL hidden) {
+    if (!view) return;
+    if ([view isKindOfClass:[UICollectionViewCell class]]) {
+        view.hidden = hidden;
+        return; // cell 内部不用再递归
+    }
+    for (UIView *sub in view.subviews) {
+        DYYYFavLikeSetCellHiddenRecursive(sub, hidden);
+    }
+}
+
 static void DYYYFavLikeSetNewVCCellsHidden(UIViewController *vc, BOOL hidden) {
     if (!vc) return;
     UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
     if (!cv) return;
-    for (UIView *sub in cv.subviews) {
-        if ([sub isKindOfClass:[UICollectionViewCell class]]) sub.hidden = hidden;
+    DYYYFavLikeSetCellHiddenRecursive(cv, hidden);
+}
+
+// 触发新 VC 的 IGListKit 刷新（objectsForListAdapter 返回变化后需手动触发更新）
+static void DYYYFavLikeRefreshNewVC(UIViewController *vc) {
+    if (!vc) return;
+    // 尝试通过 KVC 拿到 IGListAdapter 并触发更新
+    id adapter = nil;
+    @try { adapter = [vc valueForKey:@"adapter"]; } @catch (__unused NSException *e) {}
+    if (adapter && [adapter respondsToSelector:@selector(performUpdatesAnimated:completion:)]) {
+        [adapter performUpdatesAnimated:YES completion:nil];
+        return;
     }
-    for (UICollectionViewCell *cell in cv.visibleCells) {
-        cell.hidden = hidden;
-    }
+    // 兜底：直接 reloadData
+    UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+    [cv reloadData];
 }
 
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
@@ -5104,18 +5127,20 @@ static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
 
 
 // 重新隐藏：解锁后双击"喜欢"调用（手势回调已在主线程，直接执行不延迟）
-// vc 就是手势绑定的喜欢页 VC，直接盖遮罩，不再做实例检查
+// 用 DYYYFavLikeCurrentVC（当前可见实例），不用手势传进来的 vc（可能是旧实例）
 static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
-    DYYYFavLikeHideUnwantedViews(vc.view);
+    UIViewController *targetVC = DYYYFavLikeCurrentVC ?: vc;
+    DYYYFavLikeHideUnwantedViews(targetVC.view);
     Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
-    if (newVCClass && [vc isKindOfClass:newVCClass]) {
-        DYYYFavLikeSetNewVCCellsHidden(vc, YES);
+    if (newVCClass && [targetVC isKindOfClass:newVCClass]) {
+        // IGListKit：objectsForListAdapter 已 hook 返回空，触发刷新即可
+        DYYYFavLikeRefreshNewVC(targetVC);
     } else {
-        UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+        UICollectionView *cv = DYYYFavLikeFindCollectionView(targetVC.view);
         [cv reloadData];
     }
-    DYYYFavLikeStartScanTimer(vc);
+    DYYYFavLikeStartScanTimer(targetVC);
     [DYYYUtils showToast:@"已隐藏"];
 }
 
@@ -5138,15 +5163,18 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
             DYYYFavLikeUnlocked = YES;
             DYYYFavLikeStopScanTimer();
             // 真实数据一直在 dataManager 里，恢复列表显示，无网络请求
+            // 用当前可见实例，不用弹窗时的 weakVC（可能是旧实例）
+            UIViewController *targetVC = DYYYFavLikeCurrentVC ?: weakVC;
             dispatch_async(dispatch_get_main_queue(), ^{
-                DYYYFavLikeUnhideViews(weakVC.view);
-                // 新热更新的 VC：恢复所有 cell 显示
+                DYYYFavLikeUnhideViews(targetVC.view);
+                // 新热更新的 VC：IGListKit 数据源已恢复，触发刷新
                 Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
-                if (newVCClass && [weakVC isKindOfClass:newVCClass]) {
-                    DYYYFavLikeSetNewVCCellsHidden(weakVC, NO);
+                if (newVCClass && [targetVC isKindOfClass:newVCClass]) {
+                    DYYYFavLikeRefreshNewVC(targetVC);
+                } else {
+                    UICollectionView *cv = DYYYFavLikeFindCollectionView(targetVC.view);
+                    [cv reloadData];
                 }
-                UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
-                [cv reloadData];
             });
             [DYYYUtils showToast:@"已解锁"];
         } else {
@@ -12932,6 +12960,13 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 // 加一套和 AWELikeWorkViewController 相同的 hook，保证新旧热更新都兼容
 %hook AWEDCFeedListViewController
 
+// IGListKit 数据源：锁定时返回空数组，列表自然显示空状态（跟旧 VC 的 dataSource hook 同理）
+// 新热更新用 IGListKit（FLEX 确认 collectionView 关联 IGListAdapter），不走标准 numberOfItemsInSection
+- (NSArray *)objectsForListAdapter:(id)listAdapter {
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeIsLikeVC(self)) return @[];
+    return %orig;
+}
+
 // 新热更新用组件化架构（AWEUserWorkCollectionViewComponentCell），不走标准 numberOfItemsInSection，
 // 锁定时藏掉所有 cell（不藏 collectionView 本体，避免全屏黑），解锁时恢复。
 // 注意：必须用 DYYYFavLikeTargetVC 按实例区分，作品 tab 可能共用此类，误藏会导致作品页异常
@@ -12947,26 +12982,22 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         }
         parentVC = parentVC.parentViewController;
     }
-    // 喜欢 tab 的 VC：锁定时藏 cell，未锁定时恢复
+    // 喜欢 tab 的 VC：记录为当前可见实例；锁定时触发 IGListKit 刷新显示空状态
     if (DYYYFavLikeIsLikeVC(self)) {
+        DYYYFavLikeCurrentVC = self;
         if (DYYYFavLikeIsLocked()) {
-            DYYYFavLikeSetNewVCCellsHidden(self, YES);
+            DYYYFavLikeRefreshNewVC(self);
             DYYYFavLikeHideUnwantedViews(self.view);
             DYYYFavLikeStartScanTimer(self);
-        } else {
-            DYYYFavLikeSetNewVCCellsHidden(self, NO);
         }
     }
 }
 
-// 每次布局时同步 cell 显示状态：锁定时藏，未锁定时恢复（防 cell 重用导致状态错乱）
+// 新 VC 不需要每次布局都处理，IGListKit 数据源 hook 已保证空状态
 - (void)viewDidLayoutSubviews {
     %orig;
-    if (DYYYFavLikeIsLikeVC(self)) {
-        DYYYFavLikeSetNewVCCellsHidden(self, DYYYFavLikeIsLocked());
-        if (DYYYFavLikeIsLocked()) {
-            DYYYFavLikeHideUnwantedViews(self.view);
-        }
+    if (DYYYFavLikeIsLikeVC(self) && DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideUnwantedViews(self.view);
     }
 }
 
@@ -12980,26 +13011,6 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
 }
 
-%end
-
-// 新热更新的 cell 类：cell 一被加到视图层级就检查，锁定时直接隐藏（无延迟）；
-// 解锁时恢复显示。沿响应链找所属 VC，只处理喜欢 tab 的
-%hook AWEUserWorkCollectionViewComponentCell
-- (void)didMoveToSuperview {
-    %orig;
-    if (!self.superview) return;
-    UIResponder *r = self;
-    while (r) {
-        if ([r isKindOfClass:[UIViewController class]]) {
-            UIViewController *vc = (UIViewController *)r;
-            if (DYYYFavLikeIsLikeVC(vc)) {
-                ((UIView *)self).hidden = DYYYFavLikeIsLocked();
-            }
-            break;
-        }
-        r = [r nextResponder];
-    }
-}
 %end
 
 // 隐藏喜欢：锁定时，直接藏掉喜欢页的上拉 footer（AWEFeedRefreshFooter），
