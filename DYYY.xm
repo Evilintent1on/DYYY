@@ -5013,6 +5013,9 @@ static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
     return NO;
 }
 
+// 新热更新 VC 锁定时藏 cell 用的标记 key（文件级共享，hide/unhide 必须用同一个）
+static char kDYYYFavLikeCellHiddenKey;
+
 // 新热更新 VC：锁定时藏掉 collectionView 里所有 cell（不藏 collectionView 本体，避免全屏黑）
 // 解锁时把藏掉的 cell 恢复显示
 static void DYYYFavLikeHideNewVCCells(UIViewController *vc) {
@@ -5020,12 +5023,18 @@ static void DYYYFavLikeHideNewVCCells(UIViewController *vc) {
     UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
     if (!cv) return;
     for (UICollectionViewCell *cell in cv.visibleCells) {
-        // 只藏内容 cell，不动系统自带的站位视图；打标记以便解锁时精确恢复
-        if (![cell isKindOfClass:[UICollectionViewCell class]]) continue;
-        static char kDYYYFavLikeCellHiddenKey;
         if (!objc_getAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey)) {
             objc_setAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             cell.hidden = YES;
+        }
+    }
+    // 组件化架构的 cell 可能不在 visibleCells 里，把 collectionView 下所有 cell 子视图也藏掉
+    for (UIView *sub in cv.subviews) {
+        if ([sub isKindOfClass:[UICollectionViewCell class]] && !sub.hidden) {
+            if (!objc_getAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey)) {
+                objc_setAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                sub.hidden = YES;
+            }
         }
     }
 }
@@ -5035,16 +5044,18 @@ static void DYYYFavLikeUnhideNewVCCells(UIViewController *vc) {
     if (!vc) return;
     UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
     if (!cv) return;
-    static char kDYYYFavLikeCellHiddenKey;
+    // 恢复所有打过标记的 cell，并清掉标记
+    for (UIView *sub in cv.subviews) {
+        if ([sub isKindOfClass:[UICollectionViewCell class]] && objc_getAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey)) {
+            objc_setAssociatedObject(sub, &kDYYYFavLikeCellHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            sub.hidden = NO;
+        }
+    }
     for (UICollectionViewCell *cell in cv.visibleCells) {
         if (objc_getAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey)) {
             objc_setAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            cell.hidden = NO;
         }
-    }
-    // cell 重用可能导致标记残留，保险起见把所有 cell 都恢复显示
-    for (UIView *sub in cv.subviews) {
-        if ([sub isKindOfClass:[UICollectionViewCell class]]) sub.hidden = NO;
+        cell.hidden = NO;
     }
 }
 
@@ -5117,21 +5128,21 @@ static void DYYYFavLikeStartScanTimer(UIViewController *vc) {
 }
 
 
-// 重新隐藏：解锁后双击"喜欢"调用
+// 重新隐藏：解锁后双击"喜欢"调用（手势回调已在主线程，直接执行不延迟）
 static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        DYYYFavLikeHideUnwantedViews(vc.view);
-        // 新热更新的 VC 用组件化架构，藏 cell（仅限喜欢 tab 实例）
-        Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
-        if (newVCClass && [vc isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == vc) {
-            DYYYFavLikeHideNewVCCells(vc);
-        } else {
-            UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-            [cv reloadData];
-        }
-        DYYYFavLikeStartScanTimer(vc);
-    });
+    DYYYFavLikeHideUnwantedViews(vc.view);
+    // 新热更新的 VC 用组件化架构，藏 cell（仅限喜欢 tab 实例）
+    Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
+    if (newVCClass && [vc isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == vc) {
+        DYYYFavLikeHideNewVCCells(vc);
+        [vc.view setNeedsLayout];
+        [vc.view layoutIfNeeded];
+    } else {
+        UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+        [cv reloadData];
+    }
+    DYYYFavLikeStartScanTimer(vc);
     [DYYYUtils showToast:@"已隐藏"];
 }
 
@@ -12971,12 +12982,17 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
     }
 }
 
-// 锁定时每次布局都确保 cell 保持隐藏（防组件化架构重建视图），仅限喜欢 tab 实例
+// 锁定时每次布局都确保 cell 保持隐藏（防组件化架构重建视图），仅限喜欢 tab 实例；
+// 解锁后若还有残留被藏的 cell，在此统一恢复
 - (void)viewDidLayoutSubviews {
     %orig;
-    if (DYYYFavLikeTargetVC == self && DYYYFavLikeIsLocked()) {
-        DYYYFavLikeHideNewVCCells(self);
-        DYYYFavLikeHideUnwantedViews(self.view);
+    if (DYYYFavLikeTargetVC == self) {
+        if (DYYYFavLikeIsLocked()) {
+            DYYYFavLikeHideNewVCCells(self);
+            DYYYFavLikeHideUnwantedViews(self.view);
+        } else {
+            DYYYFavLikeUnhideNewVCCells(self);
+        }
     }
 }
 
