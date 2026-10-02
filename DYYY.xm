@@ -4916,6 +4916,10 @@ static void DYYYSyncHiddenFeedAnchorArrangedView(UIView *inner);
 @interface AWELikeWorkViewController : UIViewController
 @end
 
+// 新热更新的喜欢 tab VC，同样补接口声明
+@interface AWEDCFeedListViewController : UIViewController
+@end
+
 // 开启 DYYYHideFavLike 并设置 DYYYFavLikePassword 后：
 // - 个人主页「喜欢」tab 的列表被整体隐藏，显示"暂无内容"占位（无"上拉加载更多"/"不可见"提示）
 // - 长按 tab 栏"喜欢"二字 2 秒：锁定时弹密码框，解锁后再次长按 2 秒重新隐藏
