@@ -4925,6 +4925,9 @@ static void DYYYSyncHiddenFeedAnchorArrangedView(UIView *inner);
 // - 长按 tab 栏"喜欢"二字 2 秒：锁定时弹密码框，解锁后再次长按 2 秒重新隐藏
 // - 密码正确即时恢复真实数据（无网络请求）；解锁状态只保存在内存，杀进程重进后重新上锁
 static BOOL DYYYFavLikeUnlocked = NO;
+// 记录当前"喜欢"tab 对应的 VC 实例（新热更新下作品/喜欢可能共用 AWEDCFeedListViewController 类，
+// 必须按实例区分，否则锁喜欢时会把作品 tab 的列表也藏掉）
+static __weak UIViewController *DYYYFavLikeTargetVC = nil;
 
 static BOOL DYYYFavLikeHideEnabled(void) {
     return DYYYGetBoolCached(@"DYYYHideFavLike");
@@ -4970,6 +4973,8 @@ static UIView *DYYYFavLikeFindLikeTabLabel(UIView *view) {
 // 给"喜欢"tab 标题加双击（只加一次）：锁定时弹密码框，已解锁时重新隐藏
 static void DYYYFavLikeAttachGesturesToLikeTab(UIView *tabView, UIViewController *target) {
     static char kDYYYFavLikeTabGestureKey;
+    // 记录喜欢 tab 对应的 VC 实例，用于新 VC 的按实例隐藏
+    DYYYFavLikeTargetVC = target;
     if (objc_getAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey)) return;
     objc_setAssociatedObject(tabView, &kDYYYFavLikeTabGestureKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     tabView.userInteractionEnabled = YES;
@@ -5006,6 +5011,41 @@ static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
         r = [r nextResponder];
     }
     return NO;
+}
+
+// 新热更新 VC：锁定时藏掉 collectionView 里所有 cell（不藏 collectionView 本体，避免全屏黑）
+// 解锁时把藏掉的 cell 恢复显示
+static void DYYYFavLikeHideNewVCCells(UIViewController *vc) {
+    if (!vc) return;
+    UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+    if (!cv) return;
+    for (UICollectionViewCell *cell in cv.visibleCells) {
+        // 只藏内容 cell，不动系统自带的站位视图；打标记以便解锁时精确恢复
+        if (![cell isKindOfClass:[UICollectionViewCell class]]) continue;
+        static char kDYYYFavLikeCellHiddenKey;
+        if (!objc_getAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey)) {
+            objc_setAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            cell.hidden = YES;
+        }
+    }
+}
+
+// 解锁时恢复被藏掉的 cell
+static void DYYYFavLikeUnhideNewVCCells(UIViewController *vc) {
+    if (!vc) return;
+    UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+    if (!cv) return;
+    static char kDYYYFavLikeCellHiddenKey;
+    for (UICollectionViewCell *cell in cv.visibleCells) {
+        if (objc_getAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey)) {
+            objc_setAssociatedObject(cell, &kDYYYFavLikeCellHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            cell.hidden = NO;
+        }
+    }
+    // cell 重用可能导致标记残留，保险起见把所有 cell 都恢复显示
+    for (UIView *sub in cv.subviews) {
+        if ([sub isKindOfClass:[UICollectionViewCell class]]) sub.hidden = NO;
+    }
 }
 
 static void DYYYFavLikeHideUnwantedViews(UIView *view) {
@@ -5082,15 +5122,13 @@ static void DYYYFavLikeLockNow(UIViewController *vc) {
     DYYYFavLikeUnlocked = NO;
     dispatch_async(dispatch_get_main_queue(), ^{
         DYYYFavLikeHideUnwantedViews(vc.view);
-        UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
-        if (cv) {
-            // 新热更新的 VC 用组件化架构，直接藏整个列表
-            Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
-            if (newVCClass && [vc isKindOfClass:newVCClass]) {
-                cv.hidden = YES;
-            } else {
-                [cv reloadData];
-            }
+        // 新热更新的 VC 用组件化架构，藏 cell（仅限喜欢 tab 实例）
+        Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
+        if (newVCClass && [vc isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == vc) {
+            DYYYFavLikeHideNewVCCells(vc);
+        } else {
+            UICollectionView *cv = DYYYFavLikeFindCollectionView(vc.view);
+            [cv reloadData];
         }
         DYYYFavLikeStartScanTimer(vc);
     });
@@ -5118,8 +5156,12 @@ static void DYYYFavLikeShowPasswordAlert(UIViewController *vc) {
             // 真实数据一直在 dataManager 里，恢复列表显示，无网络请求
             dispatch_async(dispatch_get_main_queue(), ^{
                 DYYYFavLikeUnhideViews(weakVC.view);
+                // 新热更新的 VC：恢复被藏掉的 cell（仅限喜欢 tab 实例）
+                Class newVCClass = NSClassFromString(@"AWEDCFeedListViewController");
+                if (newVCClass && [weakVC isKindOfClass:newVCClass] && DYYYFavLikeTargetVC == weakVC) {
+                    DYYYFavLikeUnhideNewVCCells(weakVC);
+                }
                 UICollectionView *cv = DYYYFavLikeFindCollectionView(weakVC.view);
-                if (cv) cv.hidden = NO;  // 新热更新的 VC 锁定时藏了整个 collectionView，解锁时恢复
                 [cv reloadData];
             });
             [DYYYUtils showToast:@"已解锁"];
@@ -12907,7 +12949,8 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 %hook AWEDCFeedListViewController
 
 // 新热更新用组件化架构（AWEUserWorkCollectionViewComponentCell），不走标准 numberOfItemsInSection，
-// 锁定时直接藏掉整个 collectionView（内容/footer/空状态一起消失），解锁时恢复
+// 锁定时藏掉所有 cell（不藏 collectionView 本体，避免全屏黑），解锁时恢复。
+// 注意：必须用 DYYYFavLikeTargetVC 按实例区分，作品 tab 可能共用此类，误藏会导致作品页异常
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     // 沿父级链往上找"喜欢"tab 标题，加双击手势：锁定时弹密码框，已解锁时重新隐藏
@@ -12920,24 +12963,19 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         }
         parentVC = parentVC.parentViewController;
     }
-    // 同步 collectionView 显示状态
-    UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
-    if (cv) cv.hidden = DYYYFavLikeIsLocked();
-    if (DYYYFavLikeIsLocked()) {
+    // 只有当前实例是喜欢 tab 的 VC 时才处理
+    if (DYYYFavLikeTargetVC == self && DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideNewVCCells(self);
         DYYYFavLikeHideUnwantedViews(self.view);
         DYYYFavLikeStartScanTimer(self);
     }
 }
 
-// 锁定时每次布局都确保 collectionView 保持隐藏（防组件化架构重建视图）
+// 锁定时每次布局都确保 cell 保持隐藏（防组件化架构重建视图），仅限喜欢 tab 实例
 - (void)viewDidLayoutSubviews {
     %orig;
-    UICollectionView *cv = DYYYFavLikeFindCollectionView(self.view);
-    if (cv) {
-        BOOL shouldHide = DYYYFavLikeIsLocked();
-        if (cv.hidden != shouldHide) cv.hidden = shouldHide;
-    }
-    if (DYYYFavLikeIsLocked()) {
+    if (DYYYFavLikeTargetVC == self && DYYYFavLikeIsLocked()) {
+        DYYYFavLikeHideNewVCCells(self);
         DYYYFavLikeHideUnwantedViews(self.view);
     }
 }
