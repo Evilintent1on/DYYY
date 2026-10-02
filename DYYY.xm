@@ -4991,9 +4991,12 @@ static BOOL DYYYFavLikeIsUnwantedText(NSString *text) {
 // 判断一个 view 是否在喜欢 tab（AWELikeWorkViewController）的层级里，
 // 避免锁定时误伤其他 tab（比如作品页）的同名 footer
 static BOOL DYYYFavLikeViewIsInLikeVC(UIView *view) {
+    // 用 NSClassFromString 做运行时查找，避免直接引用前向声明的类导致链接错误
+    Class likeVCClass = NSClassFromString(@"AWELikeWorkViewController");
+    if (!likeVCClass) return NO;
     UIResponder *r = view;
     while (r) {
-        if ([r isKindOfClass:[AWELikeWorkViewController class]]) return YES;
+        if ([r isKindOfClass:likeVCClass]) return YES;
         r = [r nextResponder];
     }
     return NO;
