@@ -12969,9 +12969,10 @@ static BOOL DYYYStringContainsAnyFilterToken(NSString *value, NSArray<NSString *
             continue;
         }
 
-        // 2.6 用户过滤：当前控制器只处理推荐流，模型字段也已在数组转换阶段完整初始化。
+        // 2.6 用户过滤：只在推荐页生效。数组转换阶段模型已完整初始化，
+        // referString 可靠，可准确判断是否为推荐流（homepage_hot）。
         // 优先匹配稳定 userID，并保留旧版 shortID 配置兼容。
-        if (DYYYRecommendationFilterMatchesAuthor(config, m.author)) {
+        if (isRecommendFeed && DYYYRecommendationFilterMatchesAuthor(config, m.author)) {
             continue;
         }
 
@@ -13046,8 +13047,9 @@ static BOOL DYYYAwemeModelMatchesConfiguredContentFilters(AWEAwemeModel *aweme,
     BOOL shouldFilterHDR = NO;
 
     // 用户过滤：initWithDictionary 调用时 referString 尚未由控制器赋值（恒为 nil），
-    // 导致 isRecommendFeed 恒为 NO，用户过滤从未生效。与批量路径保持一致，此处不做 feed 限定。
-    shouldFilterUser = DYYYRecommendationFilterMatchesAuthor(config, aweme.author);
+    // 无法判断是否为推荐页。在此做用户过滤会误杀搜索、个人主页等场景（主动看被过滤用户也看不了）。
+    // 推荐页的用户过滤由 AWEHotListDataController 的批量路径负责（referString 已完整，可靠判断）。
+    // 此处不做用户过滤，保持 NO。
 
     if (isRecommendFeed && config.keywords.count > 0) {
         shouldFilterKeywords = DYYYStringContainsAnyFilterToken(aweme.descriptionString, config.keywords);
