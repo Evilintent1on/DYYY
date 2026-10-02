@@ -12156,7 +12156,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         return;
     }
     // 隐藏喜欢：锁定时，喜欢页的空状态不显示文字（"由于被隐藏或删除…"）
-    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC((UIView *)self)) {
         return;
     }
     %orig(title);
@@ -12167,7 +12167,7 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
         return;
     }
     // 隐藏喜欢：锁定时，喜欢页的空状态不显示文字
-    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC((UIView *)self)) {
         return;
     }
     %orig(detail);
@@ -12176,8 +12176,8 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 // 兜底：锁定时直接藏掉喜欢页的空状态视图
 - (void)layoutSubviews {
     %orig;
-    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
-        self.hidden = YES;
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC((UIView *)self)) {
+        ((UIView *)self).hidden = YES;
     }
 }
 %end
@@ -12885,14 +12885,14 @@ static void DYYYHideProfilePostGuideView(UIView *view) {
 %hook AWEFeedRefreshFooter
 - (void)layoutSubviews {
     %orig;
-    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
-        self.hidden = YES;
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC((UIView *)self)) {
+        ((UIView *)self).hidden = YES;
     }
 }
 - (void)didMoveToWindow {
     %orig;
-    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC(self)) {
-        self.hidden = YES;
+    if (DYYYFavLikeIsLocked() && DYYYFavLikeViewIsInLikeVC((UIView *)self)) {
+        ((UIView *)self).hidden = YES;
     }
 }
 %end
