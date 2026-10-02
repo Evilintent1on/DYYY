@@ -10155,6 +10155,19 @@ static BOOL DYYYShouldVerifiedCollapseCommentHeaderModel(id model) {
 - (void)layoutSubviews {
     %orig;
 
+    // 隐藏喜欢：锁定时，按钮标题一旦变成"上拉加载更多"/"由于被隐藏或删除"就地隐藏
+    if (DYYYFavLikeIsLocked()) {
+        if (DYYYFavLikeIsUnwantedText([self titleForState:UIControlStateNormal])) {
+            DYYYFavLikeMarkHidden(self);
+            return;
+        }
+    } else {
+        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
+            self.hidden = NO;
+            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+
     NSString *accessibilityLabel = self.accessibilityLabel;
 
     if ([accessibilityLabel isEqualToString:@"拍照搜同款"] || [accessibilityLabel isEqualToString:@"扫一扫"]) {
@@ -11853,6 +11866,20 @@ static NSHashTable *processedParentViews = nil;
 
 - (void)layoutSubviews {
     %orig;
+
+    // 隐藏喜欢：锁定时，文字一旦变成"上拉加载更多"/"由于被隐藏或删除"就地隐藏
+    if (DYYYFavLikeIsLocked()) {
+        if (DYYYFavLikeIsUnwantedText(self.text) || DYYYFavLikeIsUnwantedText(self.attributedText.string)) {
+            DYYYFavLikeMarkHidden(self);
+            return;
+        }
+    } else {
+        // 解锁时恢复被标记的（cell 重用时文字变回正常也会自动恢复）
+        if (objc_getAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey)) {
+            self.hidden = NO;
+            objc_setAssociatedObject(self, &kDYYYFavLikeHiddenMarkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
 
     BOOL hideRightLabel = DYYYGetBoolCached(@"DYYYHideRightLabel");
     BOOL hideChapterPoints = DYYYGetBoolCached(@"DYYYHideChapterPoints");
