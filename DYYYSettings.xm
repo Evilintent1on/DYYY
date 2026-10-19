@@ -3431,6 +3431,16 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
             @"detail" : @"",
             @"cellType" : @6,
             @"imageName" : @"ic_eyeslash_outlined_16"},
+          @{@"identifier" : @"隐藏所有喜欢列表",
+            @"title" : @"隐藏喜欢列表",
+            @"detail" : @"",
+            @"cellType" : @6,
+            @"imageName" : @"ic_eyeslash_outlined_16"},
+          @{@"identifier" : @"隐藏所有收藏列表",
+            @"title" : @"隐藏收藏列表",
+            @"detail" : @"",
+            @"cellType" : @6,
+            @"imageName" : @"ic_eyeslash_outlined_16"},
           @{@"identifier" : @"DYYYHideMessageTabStarMall",
             @"title" : @"隐藏消息星光商城",
             @"detail" : @"",
@@ -3450,6 +3460,52 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
       for (NSDictionary *dict in messageAndMineSettings) {
           AWESettingItemModel *item = [DYYYSettingsHelper createSettingItem:dict];
           [messageAndMineItems addObject:item];
+      }
+
+      // 【隐藏喜欢/收藏列表】密码设置（DYHideLists 并入）：点击设置或修改密码，
+      // 存 NSUserDefaults 同名键；在列表页摇一摇输入密码查看，留空确定即清除。
+      for (NSString *pwdKey in @[ @"喜欢列表密码", @"收藏列表密码" ]) {
+          AWESettingItemModel *pwdItem = [[%c(AWESettingItemModel) alloc] init];
+          pwdItem.identifier = pwdKey;
+          pwdItem.title = pwdKey;
+          pwdItem.type = 0;
+          pwdItem.svgIconImageName = @"ic_eyeslash_outlined_16";
+          pwdItem.cellType = 26;
+          pwdItem.colorStyle = 2;
+          pwdItem.isEnable = YES;
+          NSString *savedPwd = [[NSUserDefaults standardUserDefaults] stringForKey:pwdKey];
+          pwdItem.detail = savedPwd.length ? @"已设置" : @"未设置";
+          __weak AWESettingItemModel *weakPwdItem = pwdItem;
+          pwdItem.cellTappedBlock = ^{
+            NSString *current = [[NSUserDefaults standardUserDefaults] stringForKey:pwdKey] ?: @"";
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:pwdKey
+                                                                             message:@"在列表页摇一摇输入密码才能查看；留空并确定即清除密码"
+                                                                      preferredStyle:UIAlertControllerStyleAlert];
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+              textField.text = current;
+              textField.placeholder = @"输入密码";
+              textField.secureTextEntry = YES;
+            }];
+            [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(UIAlertAction *action) {
+                                                      NSString *text = alert.textFields.firstObject.text ?: @"";
+                                                      if (text.length) {
+                                                          [[NSUserDefaults standardUserDefaults] setObject:text forKey:pwdKey];
+                                                      } else {
+                                                          [[NSUserDefaults standardUserDefaults] removeObjectForKey:pwdKey];
+                                                      }
+                                                      AWESettingItemModel *strongPwdItem = weakPwdItem;
+                                                      if (strongPwdItem) {
+                                                          strongPwdItem.detail = text.length ? @"已设置" : @"未设置";
+                                                          [strongPwdItem refreshCell];
+                                                      }
+                                                    }]];
+            UIViewController *presenter = rootVC.navigationController.topViewController ?: rootVC;
+            [presenter presentViewController:alert animated:YES completion:nil];
+          };
+          [messageAndMineItems addObject:pwdItem];
       }
 
       // 【提示与位置信息】分类

@@ -81,14 +81,20 @@ DYYY_FILES = DYYY.xm \
 	Sources/Features/DYYYFeedTagHooks.m \
 	Sources/Features/DYYYExactInteractionCountHooks.m \
 	Sources/Hooking/DYYYRuntimeHookInstaller.m \
-	Sources/Hooking/DYYYHookManager.m
+	Sources/Hooking/DYYYHookManager.m \
+	Sources/HideLists/DYXConfig.m \
+	Sources/HideLists/DYXUtil.m \
+	Sources/HideLists/DYXHide.m \
+	Sources/HideLists/DYXPwdGate.m \
+	Sources/HideLists/DYXHook.m
 DYYY_CFLAGS = -fobjc-arc -w \
 	-I$(THEOS_PROJECT_DIR)/Sources/Core \
 	-I$(THEOS_PROJECT_DIR)/Sources/Settings \
 	-I$(THEOS_PROJECT_DIR)/Sources/UI \
 	-I$(THEOS_PROJECT_DIR)/Sources/Media \
 	-I$(THEOS_PROJECT_DIR)/Sources/Features \
-	-I$(THEOS_PROJECT_DIR)/Sources/Hooking
+	-I$(THEOS_PROJECT_DIR)/Sources/Hooking \
+	-I$(THEOS_PROJECT_DIR)/Sources/HideLists
 DYYY_LDFLAGS = -weak_framework AVFAudio -lcompression
 DYYY_FRAMEWORKS = UIKit Foundation AVFoundation CoreAudio UniformTypeIdentifiers
 CXXFLAGS += -std=c++11
