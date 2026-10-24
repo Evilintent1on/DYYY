@@ -566,7 +566,6 @@ static NSString *DYYYDisplayLocationFromGeoNamesInfo(NSDictionary *locationInfo)
 
     NSString *countryName = locationInfo[@"countryName"];
     NSString *adminName1 = locationInfo[@"adminName1"];
-    NSString *localName = locationInfo[@"name"];
 
     if (![countryName isKindOfClass:[NSString class]]) {
         countryName = nil;
@@ -574,28 +573,13 @@ static NSString *DYYYDisplayLocationFromGeoNamesInfo(NSDictionary *locationInfo)
     if (![adminName1 isKindOfClass:[NSString class]]) {
         adminName1 = nil;
     }
-    if (![localName isKindOfClass:[NSString class]]) {
-        localName = nil;
-    }
 
+    // 只显示国家和州/一级行政区，不显示具体地名（name 字段不再使用）
     if (countryName.length > 0) {
-        if (adminName1.length > 0 && localName.length > 0 && ![countryName isEqualToString:localName]) {
-            if ([adminName1 isEqualToString:localName]) {
-                return [NSString stringWithFormat:@"%@ %@", countryName, localName];
-            }
-            return [NSString stringWithFormat:@"%@ %@ %@", countryName, adminName1, localName];
-        }
-        if (localName.length > 0 && ![countryName isEqualToString:localName]) {
-            return [NSString stringWithFormat:@"%@ %@", countryName, localName];
-        }
         if (adminName1.length > 0 && ![countryName isEqualToString:adminName1]) {
             return [NSString stringWithFormat:@"%@ %@", countryName, adminName1];
         }
         return countryName;
-    }
-
-    if (localName.length > 0) {
-        return localName;
     }
     if (adminName1.length > 0) {
         return adminName1;
