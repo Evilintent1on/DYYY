@@ -6489,13 +6489,10 @@ static void DYYYApplyPlayInteractionElementLayoutFromElement(id element, NSStrin
                     NSString *apiLocation = nil;
 
                     if (!error && locationInfo) {
-                        NSString *localName = locationInfo[@"name"];
+                        // 只显示国家和州/一级行政区，不显示具体地名（name 字段不再使用）
                         NSString *adminName1 = locationInfo[@"adminName1"];
                         NSString *countryName = locationInfo[@"countryName"];
 
-                        if (![localName isKindOfClass:[NSString class]]) {
-                            localName = nil;
-                        }
                         if (![adminName1 isKindOfClass:[NSString class]]) {
                             adminName1 = nil;
                         }
@@ -6504,21 +6501,11 @@ static void DYYYApplyPlayInteractionElementLayoutFromElement(id element, NSStrin
                         }
 
                         if (countryName.length > 0) {
-                            if (adminName1.length > 0 && localName.length > 0 && ![countryName isEqualToString:localName]) {
-                                if ([adminName1 isEqualToString:localName]) {
-                                    apiLocation = [NSString stringWithFormat:@"%@ %@", countryName, localName];
-                                } else {
-                                    apiLocation = [NSString stringWithFormat:@"%@ %@ %@", countryName, adminName1, localName];
-                                }
-                            } else if (localName.length > 0 && ![countryName isEqualToString:localName]) {
-                                apiLocation = [NSString stringWithFormat:@"%@ %@", countryName, localName];
-                            } else if (adminName1.length > 0 && ![countryName isEqualToString:adminName1]) {
+                            if (adminName1.length > 0 && ![countryName isEqualToString:adminName1]) {
                                 apiLocation = [NSString stringWithFormat:@"%@ %@", countryName, adminName1];
                             } else {
                                 apiLocation = countryName;
                             }
-                        } else if (localName.length > 0) {
-                            apiLocation = localName;
                         } else if (adminName1.length > 0) {
                             apiLocation = adminName1;
                         }
